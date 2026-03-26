@@ -49,6 +49,10 @@
                 </div>
             </div>
             <div id="ocr-raw-text" style="margin-top:15px; padding:10px; background:#fff; border-radius:5px; font-size:12px; color:#666;"></div>
+            <div id="ocr-annotated-section" style="margin-top:15px; display:none;">
+                <div style="font-size:14px; color:#666; margin-bottom:5px;">YOLOv8 偵測框</div>
+                <img id="ocr-annotated-img" style="max-width:100%; border:2px solid #28a745; border-radius:5px;" crossorigin="anonymous">
+            </div>
         </div>
     </div>
 
@@ -309,9 +313,9 @@ document.getElementById('upload-form')?.addEventListener('submit', async (e) => 
             const avgConf = detectData.ocr_confidence || 85;
             document.getElementById('ocr-confidence').textContent = avgConf + '%';
             
-            // 顯示 YOLOv8 車輛偵測結果
-            if (detectData.yolo_detected > 0 && detectData.vehicle_results) {
-                const vr = detectData.vehicle_results[0];
+            // 顯示 YOLOv8 車牌偵測結果
+            if (detectData.yolo_detected > 0 && detectData.plate_results && detectData.plate_results.length > 0) {
+                const vr = detectData.plate_results[0];
                 if (vr) {
                     document.getElementById('ocr-vehicle').textContent = `${vr.vehicle_type} (${(vr.vehicle_conf * 100).toFixed(0)}%)`;
                 }
@@ -323,6 +327,14 @@ document.getElementById('upload-form')?.addEventListener('submit', async (e) => 
             if (detectData.ocr_texts && detectData.ocr_texts.length > 0) {
                 const rawTexts = detectData.ocr_texts.map(t => `${t.text} (${Math.round(t.confidence * 100)}%)`).join(', ');
                 document.getElementById('ocr-raw-text').textContent = '原始文字: ' + rawTexts;
+            }
+            
+            // 顯示 YOLOv8 偵測框圖片
+            if (detectData.annotated_image) {
+                document.getElementById('ocr-annotated-section').style.display = 'block';
+                document.getElementById('ocr-annotated-img').src = '/' + detectData.annotated_image + '?t=' + new Date().getTime();
+            } else {
+                document.getElementById('ocr-annotated-section').style.display = 'none';
             }
         } else {
             document.getElementById('ocr-plate').textContent = '未偵測到';
@@ -344,8 +356,8 @@ document.getElementById('upload-form')?.addEventListener('submit', async (e) => 
             
             // 顯示 YOLOv8 偵測結果
             let yoloInfo = '';
-            if (detectData.yolo_detected > 0 && detectData.vehicle_results) {
-                const vr = detectData.vehicle_results[0];
+            if (detectData.yolo_detected > 0 && detectData.plate_results && detectData.plate_results.length > 0) {
+                const vr = detectData.plate_results[0];
                 if (vr) {
                     yoloInfo = `<br><small>🚗 YOLOv8 偵測到: ${vr.vehicle_type} (${(vr.vehicle_conf * 100).toFixed(0)}%)</small>`;
                 }

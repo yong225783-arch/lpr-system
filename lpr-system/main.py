@@ -216,6 +216,12 @@ def video_feed_jpg():
             return buffer.tobytes(), 200, {'Content-Type': 'image/jpeg'}
     return '', 404
 
+@app.route('/captures/<path:filename>')
+def serve_capture(filename):
+    """提供 captures 資料夾中的圖片"""
+    from flask import send_from_directory
+    return send_from_directory('captures', filename)
+
 @app.route('/api/camera_status')
 def api_camera_status():
     """檢查攝影機狀態"""
@@ -765,6 +771,23 @@ def api_detect_plate():
     plate_crops = detect_plate_with_yolo(filepath)
     logger.info(f'YOLOv8 偵測到 {len(plate_crops)} 個車牌區域')
     
+    # 繪製 YOLOv8 偵測框到圖片上
+    if plate_crops:
+        img = cv2.imread(filepath)
+        for i, pc in enumerate(plate_crops):
+            x1, y1, x2, y2 = pc['bbox']
+            # 繪製綠色框 (B, G, R)
+            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 3)
+            # 在框上方寫上標籤
+            label = f'車牌 #{i+1}'
+            cv2.putText(img, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        # 儲存有框的圖片
+        annotated_path = filepath.replace('.jpg', '_annotated.jpg').replace('.png', '_annotated.png')
+        cv2.imwrite(annotated_path, img)
+        logger.info(f'已繪製 YOLOv8 偵測框: {annotated_path}')
+    else:
+        annotated_path = filepath
+    
     # Step 2: 對每個車牌區域進行透視變換 + PaddleOCR 辨識
     all_ocr_texts = []
     plate_results = []
@@ -821,9 +844,11 @@ def api_detect_plate():
         'filename': filename,
         'filepath': filepath,
         'yolo_detected': len(plate_crops),
+        'annotated_image': annotated_path,
         'plate_results': [{
             'vehicle_type': pr['vehicle_type'],
             'vehicle_conf': pr['vehicle_conf'],
+            'bbox': pr['bbox'],
             'plates': pr['possible_plates']
         } for pr in plate_results],
         'full_image_plates': full_plates,
