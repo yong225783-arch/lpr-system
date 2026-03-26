@@ -557,12 +557,19 @@ _yolo_model = None
 _paddleocr = None
 
 def get_yolo_model():
-    """取得 YOLOv8 模型"""
+    """取得 YOLOv8 車牌檢測模型"""
     global _yolo_model
     if _yolo_model is None:
         from ultralytics import YOLO
-        _yolo_model = YOLO('yolov8s.pt')
-        logger.info('YOLOv8s 初始化完成')
+        # 使用專門的台灣車牌檢測模型
+        model_path = 'models/license_plate_yolo.pt'
+        if os.path.exists(model_path):
+            _yolo_model = YOLO(model_path)
+            logger.info('YOLOv8 車牌檢測模型初始化完成')
+        else:
+            # 如果沒有專門模型，使用 YOLOv8s
+            _yolo_model = YOLO('yolov8s.pt')
+            logger.info('YOLOv8s 初始化完成')
     return _yolo_model
 
 def get_paddleocr():
@@ -578,7 +585,7 @@ def get_paddleocr():
 
 def detect_plate_with_yolo(image_path):
     """
-    使用 YOLOv8 偵測車牌位置
+    使用 YOLOv8 專門車牌檢測模型偵測車牌位置
     回傳: list of {'bbox': tuple, 'crop': numpy array}
     """
     try:
@@ -588,42 +595,33 @@ def detect_plate_with_yolo(image_path):
         if img is None:
             return []
         
-        # YOLOv8 偵測
-        results = model(img, verbose=False, conf=0.3)
+        # YOLOv8 車牌偵測
+        results = model(img, verbose=False, conf=0.5)
         
         plate_crops = []
         h, w = img.shape[:2]
         
         for r in results:
             for box in r.boxes:
-                cls = int(box.cls[0])
                 conf = float(box.conf[0])
-                name = r.names[cls]
+                x1, y1, x2, y2 = box.xyxy[0].tolist()
                 
-                # 車牌通常在車輛區域的下方 1/3 位置
-                if name in ['car', 'motorcycle', 'bus', 'truck']:
-                    x1, y1, x2, y2 = box.xyxy[0].tolist()
-                    
-                    # 車牌區域通常在車輛的下半部分
-                    vehicle_height = y2 - y1
-                    plate_y1 = int(y1 + vehicle_height * 0.6)
-                    plate_y2 = int(y2)
-                    
-                    # 擴大區域
-                    plate_x1 = int(max(0, x1 - 20))
-                    plate_y1 = int(max(0, plate_y1 - 10))
-                    plate_x2 = int(min(w, x2 + 20))
-                    plate_y2 = int(min(h, plate_y2 + 10))
-                    
-                    if plate_x2 > plate_x1 and plate_y2 > plate_y1:
-                        crop = img[plate_y1:plate_y2, plate_x1:plate_x2]
-                        plate_crops.append({
-                            'bbox': (plate_x1, plate_y1, plate_x2, plate_y2),
-                            'crop': crop,
-                            'vehicle_type': name,
-                            'vehicle_conf': round(conf, 2)
-                        })
-                        logger.info(f'YOLOv8 偵測到 {name}，車牌區域: ({plate_x1}, {plate_y1})-({plate_x2}, {plate_y2})')
+                # 擴大一點區域
+                pad = 5
+                x1 = max(0, x1 - pad)
+                y1 = max(0, y1 - pad)
+                x2 = min(w, x2 + pad)
+                y2 = min(h, y2 + pad)
+                
+                if int(x2) > int(x1) and int(y2) > int(y1):
+                    crop = img[int(y1):int(y2), int(x1):int(x2)]
+                    plate_crops.append({
+                        'bbox': (int(x1), int(y1), int(x2), int(y2)),
+                        'crop': crop,
+                        'vehicle_type': 'license_plate',
+                        'vehicle_conf': round(conf, 2)
+                    })
+                    logger.info(f'YOLOv8 偵測到車牌，信心度: {conf:.2f}')
         
         return plate_crops
         

@@ -1,0 +1,112 @@
+<!doctype html><html style="background: transparent"><head><script async src="https://www.googletagmanager.com/gtag/js?id=G-SEKT4K1EWR"></script><script>window.dataLayer = window.dataLayer || [];
+        function gtag() {
+            dataLayer.push(arguments);
+        }
+        gtag("js", new Date());
+
+        // Defer GA config until rfuid is available (mirrors utm.js/Segment pattern).
+        // Polls for window.rfuid (set by utm.js) with localStorage fallback,
+        // timing out after 5.5s to avoid blocking analytics indefinitely.
+        (function () {
+            var GA_ID = "G-SEKT4K1EWR";
+            var start = Date.now();
+            function tryInitGa() {
+                var rfuid = window.rfuid;
+                if (!rfuid) {
+                    try { rfuid = localStorage.getItem("rfuid"); } catch (e) {}
+                }
+                if (rfuid || Date.now() - start > 5500) {
+                    clearInterval(interval);
+                    var config = { send_page_view: false };
+                    if (rfuid) { config.client_id = rfuid; }
+                    gtag("config", GA_ID, config);
+                }
+            }
+            var interval = setInterval(tryInitGa, 64);
+            tryInitGa();
+        })();</script><script>!(function () {
+            var analytics = (window.analytics = window.analytics || []);
+            if (!analytics.initialize)
+                if (!analytics.invoked) {
+                    analytics.invoked = !0;
+                    analytics.methods = [
+                        "trackSubmit",
+                        "trackClick",
+                        "trackLink",
+                        "trackForm",
+                        "pageview",
+                        "identify",
+                        "reset",
+                        "group",
+                        "track",
+                        "ready",
+                        "alias",
+                        "debug",
+                        "page",
+                        "once",
+                        "off",
+                        "on",
+                        "addSourceMiddleware",
+                        "addIntegrationMiddleware",
+                        "setAnonymousId"
+                    ];
+                    analytics.factory = function (e) {
+                        return function () {
+                            var t = Array.prototype.slice.call(arguments);
+                            t.unshift(e);
+                            analytics.push(t);
+                            return analytics;
+                        };
+                    };
+                    for (var e = 0; e < analytics.methods.length; e++) {
+                        var t = analytics.methods[e];
+                        analytics[t] = analytics.factory(t);
+                    }
+                    analytics.load = function (e, t) {
+                        var n = document.createElement("script");
+                        n.type = "text/javascript";
+                        n.async = !0;
+                        n.src =
+                            "https://cdn.segment.com/analytics.js/v1/" +
+                            e +
+                            "/analytics.min.js";
+                        var a = document.getElementsByTagName("script")[0];
+                        a.parentNode.insertBefore(n, a);
+                        analytics._loadOptions = t;
+                    };
+                    analytics.SNIPPET_VERSION = "4.1.0";
+
+                    // utm.js will load segment with a custom cross-subdomain anon id later.
+                    window.segmentWriteKey = "eXtDJCxffULSITBEV2KMzv7MwuBkMvty";
+                }
+        })();</script><script>var _cio = _cio || [];</script><script>_linkedin_partner_id = "6901572";
+        window._linkedin_data_partner_ids = window._linkedin_data_partner_ids || [];
+        window._linkedin_data_partner_ids.push(_linkedin_partner_id);</script><script>(function (l) {
+            if (!l) {
+                window.lintrk = function (a, b) {
+                    window.lintrk.q.push([a, b]);
+                };
+                window.lintrk.q = [];
+            }
+            var s = document.getElementsByTagName("script")[0];
+            var b = document.createElement("script");
+            b.type = "text/javascript";
+            b.async = true;
+            b.src = "https://snap.licdn.com/li.lms-analytics/insight.min.js";
+            s.parentNode.insertBefore(b, s);
+        })(window.lintrk);</script><script>window.addEventListener('DOMContentLoaded', function() {
+            if (location.hostname.includes("localhost")) {
+                document.body.classList.add("localhost");
+            }
+        });</script><noscript><img height="1" width="1" style="display: none" alt="" src="https://px.ads.linkedin.com/collect/?pid=6901572&fmt=gif"/></noscript><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta http-equiv="origin-trial" content="AuPb5SaXC8LM/CS05jdR5kZbSXe6rax9B0awGzMkmQVJ00mm2TJYBzoMEnj7S6aFXJpxMHCr8zJTjm4fKoVodQAAAAB2eyJvcmlnaW4iOiJodHRwczovL3JvYm9mbG93LmNvbTo0NDMiLCJmZWF0dXJlIjoiVW5yZXN0cmljdGVkU2hhcmVkQXJyYXlCdWZmZXIiLCJleHBpcnkiOjE3MTkzNTk5OTksImlzU3ViZG9tYWluIjp0cnVlfQ=="/><meta http-equiv="origin-trial" content="AlZWJtQGldjwGDF0dhcY08I40ZEfjhawsIdfJJNJeBCqvF9Fbrsc1ga0Si3YZPTkdLE7YfMt73JP94Ith1l2EQAAAAB2eyJvcmlnaW4iOiJodHRwczovL3JvYm9mbG93Lm9uZTo0NDMiLCJmZWF0dXJlIjoiVW5yZXN0cmljdGVkU2hhcmVkQXJyYXlCdWZmZXIiLCJleHBpcnkiOjE3MTkzNTk5OTksImlzU3ViZG9tYWluIjp0cnVlfQ=="/><title>Sign in to Roboflow</title><meta name="description" content="Even if you&#x27;re not a machine learning expert, you can use Roboflow train a custom, state-of-the-art computer vision model on your own data."/><meta content="Sign in to Roboflow" property="og:title"/><meta content="Even if you&#x27;re not a machine learning expert, you can use Roboflow train a custom, state-of-the-art computer vision model on your own data." property="og:description"/><meta content="https://uploads-ssl.webflow.com/5eca8e43c4dfff837f0f6392/5ee8424f73bb8d29483cc9d5_roboflow-opengraph.png" property="og:image"/><meta content="Sign in to Roboflow" property="twitter:title"/><meta content="Even if you&#x27;re not a machine learning expert, you can use Roboflow train a custom, state-of-the-art computer vision model on your own data." property="twitter:description"/><meta content="https://uploads-ssl.webflow.com/5eca8e43c4dfff837f0f6392/5ee8424f73bb8d29483cc9d5_roboflow-opengraph.png" property="twitter:image"/><meta property="og:type" content="website"/><meta content="summary_large_image" name="twitter:card"/><script defer="defer" src="/scripts/utm.js"></script><script src="https://static.roboflow.com/_static/scripts/firebaseui/firebaseui__en.js"></script><link rel="stylesheet" href="https://www.gstatic.com/firebasejs/ui/6.1.0/firebase-ui-auth.css"/><link href="https://cdnassets.roboflow.com/_vendor/fontawesome/6.4.0/css/all.min.css" rel="stylesheet"><link href="https://cdnassets.roboflow.com/_vendor/fontawesome/kit/custom-icons.css" rel="stylesheet"><link rel="stylesheet" href="https://cdnassets.roboflow.com/_vendor/animate.css/3.7.2/animate.min.css"/><link rel="stylesheet" href="https://cdnassets.roboflow.com/_vendor/ion-rangeslider/2.3.0/css/ion.rangeSlider.min.css"/><link rel="stylesheet" href="https://cdnassets.roboflow.com/_vendor/intro.js/2.9.3/introjs.min.css"/><link rel="stylesheet" href="https://cdnassets.roboflow.com/_vendor/chartist/0.11.4/chartist.min.css"/><link href="https://cdnassets.roboflow.com/_vendor/fonts/inter/v20/inter.css" rel="stylesheet"/><script crossorigin="anonymous" src="https://cdnassets.roboflow.com/_vendor/jquery/3.7.1/jquery.min.js" integrity="sha384-1H217gwSVyLSIfaLxHbE7dRb3v4mYCKbpQvzx0cegeju1MVsGrX5xXxAvs/HgeFs"></script><script crossorigin="anonymous" src="https://cdnassets.roboflow.com/_vendor/jquery-ui/1.13.2/jquery-ui.min.js" integrity="sha384-4D3G3GikQs6hLlLZGdz5wLFzuqE9v4yVGAcOH86y23JqBDPzj9viv0EqyfIa6YUL"></script><script crossorigin="anonymous" src="https://cdnassets.roboflow.com/_vendor/async/3.1.0/async.min.js" integrity="sha384-tupr6Ie66boUb4gglQOLverKDLOwODAHc+hJPh+ulszHbBJqRQct5jVPh6/Yq8b3"></script><script crossorigin="anonymous" src="https://cdnassets.roboflow.com/_vendor/lodash.js/4.17.20/lodash.min.js" integrity="sha384-EnW5v27oxpPV45dNJxtnA2OWfHpDTXuO/EzFl+c1vzZcB1aWeANNH0pFZLJ6Gsbr"></script><script crossorigin="anonymous" src="https://cdnassets.roboflow.com/_vendor/crypto-js/3.1.9-1/crypto-js.min.js" integrity="sha384-lp4k1VRKPU9eBnPePjnJ9M2RF3i7PC30gXs70+elCVfgwLwx1tv5+ctxdtwxqZa7"></script><script crossorigin="anonymous" src="https://cdnassets.roboflow.com/_vendor/blueimp-load-image/2.24.0/load-image.all.min.js" integrity="sha384-hMjojq5cF5NVwLzCR0NN+DnRVyI7jKFyamHNoQmXlAQAvgEGZ3SIvO4XOUGkP4sm"></script><script crossorigin="anonymous" src="https://cdnassets.roboflow.com/_vendor/moment.js/2.29.4/moment.min.js" integrity="sha384-VCGDSwGwLWkVOK5vAWSaY38KZ4oKJ0whHjpJQhjqrMlWadpf2dUVKLgOLBdEaLvZ"></script><script crossorigin="anonymous" src="https://cdnassets.roboflow.com/_vendor/moment-timezone/0.5.26/moment-timezone.min.js" integrity="sha384-nWOAYdFpHhjuh5SOnU+rGRpxKAyuV4ET5d5SK+0Dd7JrskK4hOzbJw/gbKUF0uDt"></script><script crossorigin="anonymous" src="https://cdnassets.roboflow.com/_vendor/popper.js/1.14.6/popper.min.js" integrity="sha384-wHAiFfRlMFy6i5SRaxvfOCifBUQy1xHdJ/yoi7FRNXMRBu5WHdZYu1hA6ZOblgut"></script><script crossorigin="anonymous" src="https://cdnassets.roboflow.com/_vendor/ion-rangeslider/2.3.0/js/ion.rangeSlider.min.js" integrity="sha384-cf8mHYQaKSOaiRBGJcyFF2GiP/sNHZG5icHw4ntxCOu/3t+BX3h8ChuGjNIkO3m8"></script><script crossorigin="anonymous" src="https://cdnassets.roboflow.com/_vendor/js-cookie/2.2.1/js.cookie.min.js" integrity="sha384-eITc5AorI6xzkW7XunGaNrcA0l6qrU/kA/mOhLQOC5thAzlHSClQTOecyzGK6QXK"></script><script crossorigin="anonymous" src="https://cdnassets.roboflow.com/_vendor/typeit/6.1.1/typeit.min.js" integrity="sha384-gzhEeSlyG06PkBpPOQo4E0tPOoj5bfN5aDZmciPpVsn2G48MpSLmJXVaa2f6CowS"></script><script crossorigin="anonymous" src="https://cdnassets.roboflow.com/_vendor/intro.js/2.9.3/intro.min.js" integrity="sha384-jOrdVYsKWezFegLEGGN+CP4kmWgv6asGPRkZQyKaoYSzmnc7YQp8VDSKNvan2gsw"></script><script crossorigin="anonymous" src="https://cdnassets.roboflow.com/_vendor/chartist/0.11.4/chartist.min.js" integrity="sha384-bf6CtCfLXLDSLve8PkWwKSMdpwsiwVijot4kH/wDChhARuTElQyXxF6Ki9fa9oE2"></script><link href="https://assets.calendly.com/assets/external/widget.css" rel="stylesheet"/><script defer="defer" src="https://assets.calendly.com/assets/external/widget.js"></script><script src="https://js.stripe.com/v3/"></script><script defer="defer" src="https://cdnassets.roboflow.com/_app/runtime.71e46b08963fed42f53b.js"></script><script defer="defer" src="https://cdnassets.roboflow.com/_app/2515.2d06949d58666f819f73.js"></script><script defer="defer" src="https://cdnassets.roboflow.com/_app/4731.5a2a812551a92a60fa17.js"></script><script defer="defer" src="https://cdnassets.roboflow.com/_app/roboflow.cc8ea048a398c49ef790.js"></script><link href="https://cdnassets.roboflow.com/_app/4731.8a50c02afa5e0fc026ff.css" rel="stylesheet"><link href="https://cdnassets.roboflow.com/_app/roboflow.c667e5c3e1d7a9bab292.css" rel="stylesheet"></head><body class="prod" style="background: transparent"><div id="header" style="background: transparent"></div><div id="rf-portal-root" class="reactRoot"></div><div id="content" style="background: transparent"><div id="root-loading-screen" style="background: transparent;
+                    position: absolute;
+                    top: 0px;
+                    left: 0px;
+                    width: 100%;
+                    height: 100%;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 24px;
+                    z-index: 60;"><img src="/images/logo.svg" style="display: block; width: 200px; height: auto; margin: 20px auto"/> <img src="/images/running_lenny_outline_128w.gif" style="width: 70px; height: auto" class="py-4"/><div class="animated my-2 animate-pulse font-mono text-sm font-normal text-gray-500">Loading...</div></div></div><div id="reactRoot"></div><svg style="display: none"><defs><symbol id="logomark" viewBox="0 0 20 20"><g clip-path="url(#clip-path-logomark)"><path fill-rule="evenodd" clip-rule="evenodd" d="M10 20c5.523 0 10-4.477 10-10S15.523 0 10 0 0 4.477 0 10s4.477 10 10 10M9.311 8.922c.924-.719.519-1.703-1.008-1.513-1.767.22-4.02 1.948-4.582 4.023a4.3 4.3 0 00-.145 1.035 3.8 3.8 0 00.129 1.018 3.8 3.8 0 00.411.968q.142.237.313.454c.39.493.889.906 1.421 1.234.116.072.24.14.375.147.198.01.348-.148.356-.34a.37.37 0 00-.048-.2c-.448-.79-.818-1.961-.742-2.7.165-1.597 1.59-2.67 2.925-3.673q.304-.227.595-.453m6.781 2.868a.57.57 0 01.584.338c.098.234.011.533-.094.751-.543 1.121-1.14 1.874-1.556 2.315-1.238 1.378-3.174 2.28-4.963 1.54-1.028-.426-1.832-1.382-1.975-2.499-.206-1.615 1.2-2.703 2.438-3.66.36-.279.707-.546.995-.813.782-.723 1.638-1.836 1.24-2.969-.383-1.084-1.658-1.557-2.706-1.666-1.033-.107-2.083.106-3.02.544-.735.344-1.354.866-1.933 1.427q-.106.103-.21.208c-.12.12-.238.24-.364.352-.171.153-.377.294-.61.325-.347.047-.677-.206-.633-.573.072-.593.493-1.11.863-1.552q.344-.41.737-.773a7.8 7.8 0 011.998-1.333 8.2 8.2 0 015.705-.428c1.47.435 2.926 1.457 3.186 3.067.055.342.055.691.006 1.034-.173 1.222-.908 2.314-1.741 3.192-.493.52-1.06.939-1.628 1.358-.453.335-.907.67-1.323 1.057-.547.509-.77 1.134-.11 1.662.904.46 1.655.222 2.476-.277a5.1 5.1 0 001.259-1.12 10 10 0 00.608-.83c.105-.162.212-.327.353-.455a.66.66 0 01.418-.222" fill="#fff"/></g><defs><clipPath id="clip-path-logomark"><path fill="#fff" d="M0 0h20v20H0z"/></clipPath></defs></symbol><symbol id="wordmark" viewBox="0 0 450 82.74"><path d="M17.41 39.7h.19c3.35-6.03 9.09-8.71 15.88-8.71h3.35v16.74c-2.39-1.34-4.69-1.63-7.37-1.63-9.66 0-12.06 6.41-12.06 14.83v19.81H0V31.66h17.41zm82.32 16.55c0 16.65-13.78 26.12-29.57 26.12-15.69 0-29.57-9.38-29.57-26.12s13.78-26.22 29.57-26.22 29.57 9.47 29.57 26.22m-40.77 0c0 6.22 4.11 11 11.19 11s11.19-4.78 11.19-11c0-6.03-4.11-11.1-11.19-11.1-7.07 0-11.19 5.07-11.19 11.1m46.09-54.92h17.41v35.12c3.73-4.31 9.57-6.41 15.21-6.41 14.54 0 24.59 12.06 24.59 26.12 0 14.16-10.14 26.22-24.78 26.22-5.74 0-11.67-2.2-14.83-7.08h-.19v5.45h-17.41zm16.84 54.92c0 6.22 4.11 11 11.19 11s11.19-4.78 11.19-11c0-6.03-4.11-11.1-11.19-11.1-7.07 0-11.19 5.07-11.19 11.1m104.37 0c0 16.65-13.78 26.12-29.57 26.12-15.69 0-29.57-9.38-29.57-26.12s13.78-26.22 29.57-26.22 29.57 9.47 29.57 26.22m-40.76 0c0 6.22 4.11 11 11.19 11s11.19-4.78 11.19-11c0-6.03-4.11-11.1-11.19-11.1s-11.19 5.07-11.19 11.1m67.93 24.49h-17.41V46.01h-6.12V31.66h6.12v-6.22c0-6.79.19-11.77 4.98-17.22 4.31-5.07 10.53-7.85 17.13-7.85 2.68 0 5.07.48 7.46 1.72v15.02c-2.01-.86-3.83-1.63-6.12-1.63-4.5 0-6.03 2.68-6.03 8.23v7.94h12.15V46h-12.15v34.74zm35.88 0H271.9V1.33h17.41zm64.57-24.49c0 16.65-13.78 26.12-29.57 26.12-15.69 0-29.57-9.38-29.57-26.12s13.78-26.22 29.57-26.22 29.57 9.47 29.57 26.22m-40.76 0c0 6.22 4.11 11 11.19 11s11.19-4.78 11.19-11c0-6.03-4.11-11.1-11.19-11.1-7.07 0-11.19 5.07-11.19 11.1m68.99 2.01 12.34-26.6h10.33l12.34 26.6 12.34-26.6h19.23l-25.64 49.09h-11.29l-12.15-26.89-12.15 26.89h-11.29l-25.64-49.09h19.33z" style="fill: #fff"/></symbol></defs></svg></body></html>
