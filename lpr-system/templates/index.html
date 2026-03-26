@@ -252,26 +252,47 @@ document.getElementById('upload-form')?.addEventListener('submit', async (e) => 
     const formData = new FormData(e.target);
     const resultDiv = document.getElementById('upload-result');
     
-    resultDiv.innerHTML = '<p style="color:#666;">上傳中...</p>';
+    resultDiv.innerHTML = '<p style="color:#666;">🔍 辨識中...</p>';
     
     try {
-        const res = await fetch('/api/upload_test', {
+        // 先偵測車牌區域
+        const detectRes = await fetch('/api/detect_plate', {
             method: 'POST',
             body: formData
         });
-        const data = await res.json();
+        const detectData = await detectRes.json();
         
-        if (data.success) {
+        // 再上傳並比對白名單
+        const uploadRes = await fetch('/api/upload_test', {
+            method: 'POST',
+            body: formData
+        });
+        const uploadData = await uploadRes.json();
+        
+        if (uploadData.success) {
             let html = '<div style="padding:15px; border-radius:8px; background:#d4edda; color:#155724;">';
-            html += '<strong>✅ ' + data.message + '</strong>';
-            if (data.allowed) {
-                html += '<br>車主：' + data.owner;
+            html += '<strong>✅ ' + uploadData.message + '</strong>';
+            
+            if (detectData.detected) {
+                html += '<br><br>📷 偵測到 ' + detectData.regions.length + ' 個可能車牌區域';
             }
-            html += '<br>檔案：' + data.filename;
+            
+            if (uploadData.allowed) {
+                html += '<br>👤 車主：' + uploadData.owner;
+            } else if (uploadData.plate) {
+                html += '<br>⚠️ 車牌 ' + uploadData.plate + ' 不在白名單';
+            }
+            
+            html += '<br>📁 檔案：' + uploadData.filename;
             html += '</div>';
             resultDiv.innerHTML = html;
+            
+            // 如果成功開門，刷新記錄
+            if (uploadData.allowed) {
+                refreshRecords();
+            }
         } else {
-            resultDiv.innerHTML = '<div style="padding:15px; border-radius:8px; background:#f8d7da; color:#721c24;">❌ ' + data.message + '</div>';
+            resultDiv.innerHTML = '<div style="padding:15px; border-radius:8px; background:#f8d7da; color:#721c24;">❌ ' + uploadData.message + '</div>';
         }
     } catch (err) {
         resultDiv.innerHTML = '<div style="padding:15px; color:#dc3545;">❌ 上傳失敗：' + err.message + '</div>';

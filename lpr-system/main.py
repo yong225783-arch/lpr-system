@@ -514,6 +514,77 @@ def test_relay():
         return jsonify({'success': ok, 'message': '' if ok else '連接失敗'})
     return jsonify({'success': False, 'message': '繼電器未連接'})
 
+def detect_plate_in_image(image_path):
+    """使用 OpenCV 檢測車牌區域"""
+    img = cv2.imread(image_path)
+    if img is None:
+        return None
+    
+    # 轉灰階
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    # 高斯模糊
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    
+    # 邊緣檢測
+    edged = cv2.Canny(blur, 50, 150)
+    
+    # 找輪廓
+    contours, _ = cv2.findContours(edged.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    contours = sorted(contours, key=cv2.contourArea, reverse=True)[:20]
+    
+    plate_regions = []
+    for c in contours:
+        peri = cv2.arcLength(c, True)
+        approx = cv2.approxPolyDP(c, 0.018 * peri, True)
+        
+        # 車牌通常是四邊形，且有一定大小
+        if len(approx) == 4 and cv2.contourArea(c) > 1000:
+            x, y, w, h = cv2.boundingRect(c)
+            aspect_ratio = w / float(h)
+            # 車牌長寬比通常在 2-6 之間
+            if 2 < aspect_ratio < 6 and w > 50 and h > 15:
+                plate_regions.append({
+                    'x': int(x), 'y': int(y), 
+                    'width': int(w), 'height': int(h),
+                    'confidence': cv2.contourArea(c)
+                })
+    
+    return plate_regions if plate_regions else None
+
+@app.route('/api/detect_plate', methods=['POST'])
+def api_detect_plate():
+    """辨識上傳圖片中的車牌（需要EasyOCR）"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登入'})
+    
+    if 'image' not in request.files:
+        return jsonify({'success': False, 'message': '沒有上傳檔案'})
+    
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({'success': False, 'message': '沒有選擇檔案'})
+    
+    # 儲存圖片
+    filename = f"detect_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
+    filepath = os.path.join('captures', filename)
+    os.makedirs('captures', exist_ok=True)
+    file.save(filepath)
+    
+    # 檢測車牌區域
+    regions = detect_plate_in_image(filepath)
+    
+    result = {
+        'success': True,
+        'filename': filename,
+        'filepath': filepath,
+        'detected': len(regions) > 0 if regions else False,
+        'regions': regions,
+        'message': f'找到 {len(regions) if regions else 0} 個可能車牌區域'
+    }
+    
+    return jsonify(result)
+
 # ============ 圖片上傳測試 ============
 
 @app.route('/upload-test')
