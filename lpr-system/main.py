@@ -558,17 +558,50 @@ def ocr_image(image_path):
         import requests
         with open(image_path, 'rb') as f:
             files = {'file': f}
-            data = {'language': 'eng', 'isOverlayRequired': 'false'}
+            data = {
+                'language': 'eng',
+                'isOverlayRequired': 'false',
+                'scale': 'true'
+            }
             resp = requests.post('https://api.ocr.space/parse/image', 
-                               files=files, data=data, timeout=30)
-        result = resp.json()
+                               files=files, data=data, timeout=60)
         
-        if result.get('ParsedResults'):
-            texts = []
-            for pr in result['ParsedResults']:
-                texts.append(pr.get('ParsedText', '').strip())
-            return texts
-        return []
+        # 檢查回應狀態
+        if resp.status_code != 200:
+            logger.error(f'OCR API HTTP error: {resp.status_code}')
+            return []
+        
+        try:
+            result = resp.json()
+        except:
+            logger.error(f'OCR response is not JSON: {resp.text[:200]}')
+            return []
+        
+        # 檢查 API 錯誤
+        if isinstance(result, str):
+            logger.error(f'OCR returned string: {result}')
+            return []
+        
+        if result.get('IsErroredOnProcessing'):
+            logger.error(f'OCR processing error: {result.get("ErrorMessage")}')
+            return []
+        
+        parsed_results = result.get('ParsedResults')
+        if not parsed_results:
+            logger.error(f'No ParsedResults in OCR response')
+            return []
+        
+        texts = []
+        for pr in parsed_results:
+            if isinstance(pr, dict):
+                text = pr.get('ParsedText', '').strip()
+                if text:
+                    texts.append(text)
+            elif isinstance(pr, str):
+                texts.append(pr.strip())
+        
+        return texts
+        
     except Exception as e:
         logger.error(f'OCR failed: {e}')
         return []
