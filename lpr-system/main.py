@@ -35,32 +35,39 @@ logger = logging.getLogger(__name__)
 
 class PlateRecognizer:
     def __init__(self):
-        self.camera = None
+        self.camera_in = None   # 進口攝影機
+        self.camera_out = None  # 出口攝影機
         self.running = False
         self.thread = None
         self.last_plate = None
         self.last_plate_time = 0
         self.cooldown = 5  # 同車牌冷卻時間（秒）
 
-    def set_camera(self, source=0):
+    def set_camera(self, source=0, mode='in'):
         """
         設定攝像頭
         source: int = USB webcam 編號
                 str = RTSP URL, 例如 'rtsp://admin:password@192.168.1.100:554/stream1'
+        mode: 'in' = 進口, 'out' = 出口
         """
-        if isinstance(source, str):
-            # RTSP URL 或其他串流 URL
-            self.camera = cv2.VideoCapture(source)
-            logger.info(f'已連接 IP Cam: {source}')
-        else:
-            self.camera = cv2.VideoCapture(source)
-            logger.info(f'已連接 Webcam: {source}')
-
-        if not self.camera.isOpened():
+        camera = cv2.VideoCapture(source)
+        
+        if not camera.isOpened():
             logger.error(f'無法開啟攝影機 {source}')
             return False
-        logger.info(f'攝影機已開啟')
+        
+        if mode == 'in':
+            self.camera_in = camera
+            logger.info(f'進口攝影機已連接: {source}')
+        else:
+            self.camera_out = camera
+            logger.info(f'出口攝影機已連接: {source}')
+        
         return True
+    
+    def get_camera(self, mode='in'):
+        """取得指定模式的攝影機"""
+        return self.camera_in if mode == 'in' else self.camera_out
 
     def preprocess(self, frame):
         """影像前處理"""
@@ -156,16 +163,28 @@ logger.info('資料庫初始化完成')
 # 車牌辨識器
 lpr = PlateRecognizer()
 
-# 嘗試開啟攝像頭（支援 webcam 或 RTSP URL）
-# 設定環境變量 CAMERA_SOURCE，例如：
-#   CAMERA_SOURCE=0              (使用第0個 webcam)
-#   CAMERA_SOURCE=rtsp://...     (使用 IP Cam RTSP 串流)
-camera_source = os.environ.get('CAMERA_SOURCE', '0')
-if camera_source.isdigit():
-    camera_source = int(camera_source)
+# 從資料庫讀取攝影機設定
+camera_in_url = db.get_setting('camera_in_url', '')
+camera_out_url = db.get_setting('camera_out_url', '')
 
-if not lpr.set_camera(camera_source):
-    logger.warning('無法開啟攝影機，網頁模式仍可使用')
+# 嘗試開啟進口攝影機
+if camera_in_url:
+    if not lpr.set_camera(camera_in_url, 'in'):
+        logger.warning('無法開啟進口攝影機')
+else:
+    logger.info('未設定進口攝影機')
+
+# 嘗試開啟出口攝影機
+if camera_out_url:
+    if not lpr.set_camera(camera_out_url, 'out'):
+        logger.warning('無法開啟出口攝影機')
+else:
+    logger.info('未設定出口攝影機')
+
+# 如果都沒有設定，使用預設 webcam 0
+if not camera_in_url and not camera_out_url:
+    lpr.set_camera(0, 'in')
+    logger.info('使用預設 Webcam 0 作為進口攝影機')
 
 # 嘗試連接繼電器
 relay_port = os.environ.get('RELAY_PORT', None)
@@ -190,14 +209,15 @@ else:
 
 # ============ 攝影機串流 / 截圖 ============
 
-@app.route('/video_feed')
-def video_feed():
+@app.route('/video_feed/<mode>')
+def video_feed(mode='in'):
     """回傳即時影像（每次請求回傳一幀）"""
     if 'user_id' not in session:
         return '', 401
     
-    if lpr.camera and lpr.camera.isOpened():
-        ret, frame = lpr.camera.read()
+    camera = lpr.get_camera(mode)
+    if camera and camera.isOpened():
+        ret, frame = camera.read()
         if ret:
             # 儲存到記憶體
             _, buffer = cv2.imencode('.jpg', frame)
@@ -206,11 +226,12 @@ def video_feed():
     # 如果沒有攝影機，回傳預設圖片
     return '', 404
 
-@app.route('/video_feed.jpg')
-def video_feed_jpg():
+@app.route('/video_feed.jpg/<mode>')
+def video_feed_jpg(mode='in'):
     """回傳即時影像 JPG（可用於 img src）"""
-    if lpr.camera and lpr.camera.isOpened():
-        ret, frame = lpr.camera.read()
+    camera = lpr.get_camera(mode)
+    if camera and camera.isOpened():
+        ret, frame = camera.read()
         if ret and frame is not None:
             _, buffer = cv2.imencode('.jpg', frame)
             return buffer.tobytes(), 200, {'Content-Type': 'image/jpeg'}
@@ -222,15 +243,16 @@ def serve_capture(filename):
     from flask import send_from_directory
     return send_from_directory('captures', filename)
 
-@app.route('/api/camera_status')
-def api_camera_status():
+@app.route('/api/camera_status/<mode>')
+def api_camera_status(mode='in'):
     """檢查攝影機狀態"""
-    available = lpr.camera is not None and lpr.camera.isOpened()
+    camera = lpr.get_camera(mode)
+    available = camera is not None and camera.isOpened()
     # 嘗試讀取一幀確認
     if available:
-        ret, frame = lpr.camera.read()
+        ret, frame = camera.read()
         available = ret and frame is not None
-    return jsonify({'available': available})
+    return jsonify({'available': available, 'mode': mode})
 
 # ============ Web 路由 ============
 
@@ -417,15 +439,16 @@ def check_plate():
 
 # --- 認列拍照 ---
 
-@app.route('/capture')
-def capture():
+@app.route('/capture/<mode>')
+def capture(mode='in'):
     """手動拍照"""
     if 'user_id' not in session:
         return jsonify({'error': '未登入'})
-    if lpr.camera and lpr.camera.isOpened():
-        ret, frame = lpr.camera.read()
+    camera = lpr.get_camera(mode)
+    if camera and camera.isOpened():
+        ret, frame = camera.read()
         if ret:
-            filename = f"manual_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+            filename = f"manual_{mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
             filepath = os.path.join('captures', filename)
             os.makedirs('captures', exist_ok=True)
             cv2.imwrite(filepath, frame)
@@ -451,9 +474,8 @@ def settings():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     return render_template('settings.html',
-        camera_type=db.get_setting('camera_type', 'webcam'),
-        camera_index=db.get_setting('camera_index', '0'),
-        rtsp_url=db.get_setting('rtsp_url', ''),
+        camera_in_url=db.get_setting('camera_in_url', ''),
+        camera_out_url=db.get_setting('camera_out_url', ''),
         relay_port=db.get_setting('relay_port', ''),
         open_duration=float(db.get_setting('open_duration', '1.5')),
         owners_count=len(db.get_owners()),
@@ -466,9 +488,8 @@ def settings_save():
         return redirect(url_for('login'))
     section = request.form.get('section')
     if section == 'camera':
-        db.set_setting('camera_type', request.form.get('camera_type', 'webcam'))
-        db.set_setting('camera_index', request.form.get('camera_index', '0'))
-        db.set_setting('rtsp_url', request.form.get('rtsp_url', ''))
+        db.set_setting('camera_in_url', request.form.get('camera_in_url', ''))
+        db.set_setting('camera_out_url', request.form.get('camera_out_url', ''))
         flash('攝影機設定已儲存', 'success')
     elif section == 'relay':
         db.set_setting('relay_port', request.form.get('relay_port', ''))
@@ -589,6 +610,18 @@ def get_paddleocr():
         logger.info('PaddleOCR 初始化完成')
     return _paddleocr
 
+# EasyOCR 全域實例
+_easyocr = None
+
+def get_easyocr():
+    """取得 EasyOCR Reader"""
+    global _easyocr
+    if _easyocr is None:
+        import easyocr
+        _easyocr = easyocr.Reader(['en'], gpu=False, verbose=False)
+        logger.info('EasyOCR 初始化完成')
+    return _easyocr
+
 def detect_plate_with_yolo(image_path):
     """
     使用 YOLOv8 專門車牌檢測模型偵測車牌位置
@@ -612,12 +645,13 @@ def detect_plate_with_yolo(image_path):
                 conf = float(box.conf[0])
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
                 
-                # 擴大一點區域
-                pad = 5
-                x1 = max(0, x1 - pad)
-                y1 = max(0, y1 - pad)
-                x2 = min(w, x2 + pad)
-                y2 = min(h, y2 + pad)
+                # 擴大區域以包含完整車牌（車牌上下左右都要留白）
+                pad_x = int((x2 - x1) * 0.15) + 10
+                pad_y = int((y2 - y1) * 0.2) + 10
+                x1 = max(0, x1 - pad_x)
+                y1 = max(0, y1 - pad_y)
+                x2 = min(w, x2 + pad_x)
+                y2 = min(h, y2 + pad_y)
                 
                 if int(x2) > int(x1) and int(y2) > int(y1):
                     crop = img[int(y1):int(y2), int(x1):int(x2)]
@@ -627,7 +661,7 @@ def detect_plate_with_yolo(image_path):
                         'vehicle_type': 'license_plate',
                         'vehicle_conf': round(conf, 2)
                     })
-                    logger.info(f'YOLOv8 偵測到車牌，信心度: {conf:.2f}')
+                    logger.info(f'YOLOv8 偵測到車牌，信心度: {conf:.2f}, 裁切尺寸: {crop.shape}')
         
         return plate_crops
         
@@ -637,75 +671,74 @@ def detect_plate_with_yolo(image_path):
 
 def apply_perspective_transform(crop_img):
     """
-    對車牌區域應用透視變換，轉為正視圖
+    對車牌區域進行簡單的影像增強，準備 OCR
+    簡化版：不做複雜的透視變換，直接增強對比度和銳利化
     """
     try:
         h, w = crop_img.shape[:2]
         
-        # 銳利化處理
-        kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-        sharpened = cv2.filter2D(crop_img, -1, kernel)
-        
-        # 標準化尺寸
-        target_ratio = 4.5
-        target_height = 60
-        target_width = int(target_height * target_ratio)
-        resized = cv2.resize(sharpened, (target_width, target_height))
+        # 確保足夠大的尺寸用於 OCR
+        min_height = 60
+        if h < min_height:
+            scale = min_height / h
+            crop_img = cv2.resize(crop_img, (int(w * scale), min_height))
         
         # 轉灰階
-        gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
+        
+        # 將灰階圖放大兩倍，OCR 需要足夠像素
+        zoomed = cv2.resize(gray, (gray.shape[1] * 2, gray.shape[0] * 2), interpolation=cv2.INTER_CUBIC)
         
         # 增強對比
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-        enhanced = clahe.apply(gray)
+        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(4,4))
+        enhanced = clahe.apply(zoomed)
         
-        # 轉回 BGR
-        result = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+        # 輕度銳利化
+        kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+        sharpened = cv2.filter2D(enhanced, -1, kernel)
+        
+        # 轉回 BGR（EasyOCR 接受 BGR 或灰階）
+        result = cv2.cvtColor(sharpened, cv2.COLOR_GRAY2BGR)
         
         return result
         
     except Exception as e:
-        logger.error(f'透視變換失敗: {e}')
+        logger.error(f'影像增強失敗: {e}')
         return crop_img
 
 def ocr_with_paddleocr(image_path):
-    """使用 PaddleOCR 辨識圖片中的文字"""
+    """使用 EasyOCR 辨識圖片中的文字（穩定版）"""
     try:
-        ocr = get_paddleocr()
-        result = ocr.ocr(image_path)
+        import cv2
+        ocr = get_easyocr()
         
-        texts = []
-        if result and result[0]:
-            for line in result[0]:
-                text = line[1][0]
-                conf = line[1][1]
-                texts.append({
-                    'text': text.strip(),
-                    'confidence': round(conf, 2)
-                })
+        # 讀取圖片並放大（讓 OCR 更容易辨識）
+        img = cv2.imread(image_path)
+        if img is None:
+            return []
         
-        return texts
-    except Exception as e:
-        logger.error(f'PaddleOCR failed: {e}')
-        return []
-
-def ocr_crop_with_paddleocr(crop_img):
-    """對裁剪後的車牌區域使用 PaddleOCR 辨識"""
-    try:
+        h, w = img.shape[:2]
+        # 放大 2 倍
+        img_large = cv2.resize(img, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
+        
+        # 轉灰階並增強對比
+        gray = cv2.cvtColor(img_large, cv2.COLOR_BGR2GRAY)
+        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(4,4))
+        enhanced = clahe.apply(gray)
+        img_processed = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+        
+        # 儲存處理後的圖片用於 OCR
         import tempfile
         import os
-        ocr = get_paddleocr()
-        
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-            cv2.imwrite(tmp.name, crop_img)
-            result = ocr.ocr(tmp.name)
+            cv2.imwrite(tmp.name, img_processed)
+            result = ocr.readtext(tmp.name)
             os.unlink(tmp.name)
         
         texts = []
-        if result and result[0]:
-            for line in result[0]:
-                text = line[1][0]
-                conf = line[1][1]
+        if result:
+            for line in result:
+                bbox, text, conf = line
                 texts.append({
                     'text': text.strip(),
                     'confidence': round(conf, 2)
@@ -713,7 +746,33 @@ def ocr_crop_with_paddleocr(crop_img):
         
         return texts
     except Exception as e:
-        logger.error(f'PaddleOCR crop failed: {e}')
+        logger.error(f'EasyOCR failed: {e}')
+        return []
+
+def ocr_crop_with_paddleocr(crop_img):
+    """對裁剪後的車牌區域使用 EasyOCR 辨識（穩定版）"""
+    try:
+        import tempfile
+        import os
+        ocr = get_easyocr()
+        
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+            cv2.imwrite(tmp.name, crop_img)
+            result = ocr.readtext(tmp.name)
+            os.unlink(tmp.name)
+        
+        texts = []
+        if result:
+            for line in result:
+                bbox, text, conf = line
+                texts.append({
+                    'text': text.strip(),
+                    'confidence': round(conf, 2)
+                })
+        
+        return texts
+    except Exception as e:
+        logger.error(f'EasyOCR crop failed: {e}')
         return []
 
 def filter_plate_text(ocr_texts):
@@ -722,22 +781,38 @@ def filter_plate_text(ocr_texts):
     
     # 台灣車牌格式
     plate_patterns = [
-        r'[A-Z]{2,3}-[0-9]{3,4}',
-        r'[0-9]{2}-[A-Z]{2,3}',
-        r'[A-Z]{2,3}[0-9]{4}',
-        r'[0-9][A-Z0-9]{5}',
+        r'[A-Z]{2,3}-[0-9]{3,4}',   # ABC-1234, AB-1234
+        r'[0-9]{2}-[A-Z]{2,3}',       # 12-ABC
+        r'[0-9]{4}-[A-Z]{2,3}',      # 5799-KE, 1234-ABC (4位數-2/3字母)
+        r'[A-Z]{2,3}[0-9]{4}',        # ABC1234
+        r'[0-9][A-Z0-9]{5}',          # 1ABC23
+        r'[0-9]{4}[A-Z]{2,3}',        # 5799KE (4位數2字母，無dash)
     ]
     
-    all_text = ' '.join([t['text'] for t in ocr_texts])
+    # 排除包含中文的文字
+    chinese_pattern = re.compile(r'[\u4e00-\u9fff]')
     
     plates = []
-    for pattern in plate_patterns:
-        matches = re.findall(pattern, all_text.upper())
-        for match in matches:
-            if '-' not in match and len(match) == 7:
-                plates.append(match[:3] + '-' + match[3:])
-            else:
-                plates.append(match)
+    for t in ocr_texts:
+        text = t['text'].strip()
+        # 跳過包含中文的文字（如「台灣省」）
+        if chinese_pattern.search(text):
+            continue
+        # 跳過太短或太長的文字
+        if len(text) < 4 or len(text) > 10:
+            continue
+        # 必須包含數字和字母
+        if not re.search(r'[0-9]', text) or not re.search(r'[A-Z]', text):
+            continue
+        
+        text_upper = text.upper()
+        for pattern in plate_patterns:
+            matches = re.findall(pattern, text_upper)
+            for match in matches:
+                if '-' not in match and len(match) == 7:
+                    plates.append(match[:3] + '-' + match[3:])
+                else:
+                    plates.append(match)
     
     return list(dict.fromkeys(plates))
 
@@ -771,23 +846,6 @@ def api_detect_plate():
     plate_crops = detect_plate_with_yolo(filepath)
     logger.info(f'YOLOv8 偵測到 {len(plate_crops)} 個車牌區域')
     
-    # 繪製 YOLOv8 偵測框到圖片上
-    if plate_crops:
-        img = cv2.imread(filepath)
-        for i, pc in enumerate(plate_crops):
-            x1, y1, x2, y2 = pc['bbox']
-            # 繪製綠色框 (B, G, R)
-            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 3)
-            # 在框上方寫上標籤
-            label = f'車牌 #{i+1}'
-            cv2.putText(img, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        # 儲存有框的圖片
-        annotated_path = filepath.replace('.jpg', '_annotated.jpg').replace('.png', '_annotated.png')
-        cv2.imwrite(annotated_path, img)
-        logger.info(f'已繪製 YOLOv8 偵測框: {annotated_path}')
-    else:
-        annotated_path = filepath
-    
     # Step 2: 對每個車牌區域進行透視變換 + PaddleOCR 辨識
     all_ocr_texts = []
     plate_results = []
@@ -819,7 +877,25 @@ def api_detect_plate():
     # 合併車牌區域和全圖的結果
     combined_plates = all_possible_plates + full_plates
     
-    # Step 5: 比對白名單
+    # Step 5: 繪製 YOLOv8 偵測框（現在有車牌號碼了）
+    if plate_crops:
+        img = cv2.imread(filepath)
+        for i, pc in enumerate(plate_crops):
+            x1, y1, x2, y2 = pc['bbox']
+            # 繪製綠色框 (B, G, R)
+            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 3)
+            # 找到這個區域對應的車牌號碼
+            plate_label = plate_results[i]['possible_plates'][0] if plate_results[i]['possible_plates'] else f'#{i+1}'
+            # 在框上方寫上車牌號碼
+            cv2.putText(img, plate_label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2)
+        # 儲存有框的圖片
+        annotated_path = filepath.replace('.jpg', '_annotated.jpg').replace('.png', '_annotated.png')
+        cv2.imwrite(annotated_path, img)
+        logger.info(f'已繪製 YOLOv8 偵測框: {annotated_path}')
+    else:
+        annotated_path = filepath
+    
+    # Step 6: 比對白名單
     matched_owner = None
     matched_plate = None
     for plate in combined_plates:

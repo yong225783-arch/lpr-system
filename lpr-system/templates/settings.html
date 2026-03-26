@@ -8,38 +8,30 @@
 
 <div class="settings-grid">
     <div class="settings-card">
-        <h2>📷 攝影機設定</h2>
+        <h2>📷 攝影機設定（進出口各一台）</h2>
         <form method="POST" action="{{ url_for('settings_save') }}">
             <input type="hidden" name="section" value="camera">
-            <div class="form-group">
-                <label>攝影機類型</label>
-                <select name="camera_type" id="cameraType" onchange="toggleCameraFields()">
-                    <option value="webcam" {% if camera_type == 'webcam' %}selected{% endif %}>USB Webcam</option>
-                    <option value="rtsp" {% if camera_type == 'rtsp' %}selected{% endif %}>IP Cam (RTSP)</option>
-                </select>
+            
+            <div style="background: #e8f5e9; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                <h3 style="margin: 0 0 0.5rem 0; color: #2e7d32;">🚗 進口攝影機</h3>
+                <div class="form-group">
+                    <label>RTSP URL</label>
+                    <input type="text" name="camera_in_url" value="{{ camera_in_url or '' }}" placeholder="rtsp://admin:password@192.168.1.100:554/stream1" style="font-family: monospace;">
+                    <small>留空則使用 USB Webcam</small>
+                </div>
             </div>
-
-            <div id="webcamField" class="form-group" style="{% if camera_type == 'rtsp' %}display:none{% endif %}">
-                <label>Webcam 編號</label>
-                <input type="number" name="camera_index" value="{{ camera_index or 0 }}" min="0" max="10">
-                <small>0 = 預設 webcam，1 = 第二顆，以此類推</small>
-            </div>
-
-            <div id="rtspField" class="form-group" style="{% if camera_type == 'webcam' %}display:none{% endif %}">
-                <label>RTSP URL</label>
-                <input type="text" name="rtsp_url" value="{{ rtsp_url or '' }}" placeholder="rtsp://admin:password@192.168.1.100:554/stream1" style="font-family: monospace;">
-                <small>完整 RTSP 串流位址，例如：rtsp://admin:admin123@192.168.1.100:554/stream1</small>
+            
+            <div style="background: #fff3e0; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                <h3 style="margin: 0 0 0.5rem 0; color: #e65100;">🚪 出口攝影機</h3>
+                <div class="form-group">
+                    <label>RTSP URL</label>
+                    <input type="text" name="camera_out_url" value="{{ camera_out_url or '' }}" placeholder="rtsp://admin:password@192.168.1.101:554/stream1" style="font-family: monospace;">
+                    <small>留空則使用 USB Webcam</small>
+                </div>
             </div>
 
             <button type="submit" class="btn-primary">儲存設定</button>
         </form>
-
-        <div style="margin-top: 1.5rem; padding: 1rem; background: #f0f9ff; border-radius: 8px;">
-            <h3>📸 測試串流</h3>
-            <p style="font-size: 0.9rem; color: #64748b;">按下測試按鈕，系統會嘗試連接並截圖一張</p>
-            <button id="btnTestCamera" class="btn-secondary" onclick="testCamera()">測試攝影機</button>
-            <span id="testResult" style="margin-left: 1rem;"></span>
-        </div>
     </div>
 
     <div class="settings-card">

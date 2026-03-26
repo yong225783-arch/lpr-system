@@ -8,16 +8,36 @@
     <!-- IP Cam 影像區 -->
     <div class="section" style="margin-bottom:20px;">
         <h2>📹 即時影像</h2>
-        <div id="videoContainer" style="position:relative; background:#1a1a1a; border-radius:10px; overflow:hidden; min-height:200px;">
-            <img id="videoFeed" src="/video_feed.jpg" style="width:100%; max-width:640px; display:block; margin:0 auto;" 
-                 onerror="handleVideoError(this)">
-            <div id="videoPlaceholder" style="display:none; padding:60px; text-align:center; color:#666;">
-                <div style="font-size:60px; margin-bottom:15px;">📷</div>
-                <p style="font-size:18px; margin-bottom:10px;">攝影機未連接</p>
-                <small style="color:#888;">在正式主機設定 CAMERA_SOURCE 環境變量後即可顯示</small>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+            <!-- 進口 -->
+            <div style="background:#e8f5e9; border-radius:10px; padding:15px;">
+                <h3 style="color:#2e7d32; margin-top:0;">🚗 進口</h3>
+                <div id="videoContainerIn" style="position:relative; background:#1a1a1a; border-radius:10px; overflow:hidden; min-height:200px;">
+                    <img id="videoFeedIn" src="/video_feed.jpg/in" style="width:100%; max-width:640px; display:block; margin:0 auto;" 
+                         onerror="handleVideoError(this, 'in')">
+                    <div id="videoPlaceholderIn" style="display:none; padding:60px; text-align:center; color:#666;">
+                        <div style="font-size:60px; margin-bottom:15px;">📷</div>
+                        <p style="font-size:18px; margin-bottom:10px;">攝影機未連接</p>
+                    </div>
+                    <div style="position:absolute; top:10px; right:10px; background:rgba(0,0,0,0.6); color:white; padding:5px 10px; border-radius:5px; font-size:12px;">
+                        <span id="cameraStatusIn">● 連線中</span>
+                    </div>
+                </div>
             </div>
-            <div style="position:absolute; top:10px; right:10px; background:rgba(0,0,0,0.6); color:white; padding:5px 10px; border-radius:5px; font-size:12px;">
-                <span id="cameraStatus">● 連線中</span>
+            <!-- 出口 -->
+            <div style="background:#fff3e0; border-radius:10px; padding:15px;">
+                <h3 style="color:#e65100; margin-top:0;">🚪 出口</h3>
+                <div id="videoContainerOut" style="position:relative; background:#1a1a1a; border-radius:10px; overflow:hidden; min-height:200px;">
+                    <img id="videoFeedOut" src="/video_feed.jpg/out" style="width:100%; max-width:640px; display:block; margin:0 auto;" 
+                         onerror="handleVideoError(this, 'out')">
+                    <div id="videoPlaceholderOut" style="display:none; padding:60px; text-align:center; color:#666;">
+                        <div style="font-size:60px; margin-bottom:15px;">📷</div>
+                        <p style="font-size:18px; margin-bottom:10px;">攝影機未連接</p>
+                    </div>
+                    <div style="position:absolute; top:10px; right:10px; background:rgba(0,0,0,0.6); color:white; padding:5px 10px; border-radius:5px; font-size:12px;">
+                        <span id="cameraStatusOut">● 連線中</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -142,76 +162,105 @@
 
 {% block scripts %}
 <script>
-// 即時影像自動更新
-let videoFeed = document.getElementById('videoFeed');
-let cameraStatus = document.getElementById('cameraStatus');
-let feedErrorCount = 0;
-let refreshInterval = null;
-let cameraAvailable = false;
+// 即時影像自動更新（支援雙攝影機）
+let videoFeedIn = document.getElementById('videoFeedIn');
+let videoFeedOut = document.getElementById('videoFeedOut');
+let cameraStatusIn = document.getElementById('cameraStatusIn');
+let cameraStatusOut = document.getElementById('cameraStatusOut');
+let feedErrorCountIn = 0;
+let feedErrorCountOut = 0;
+let refreshIntervalIn = null;
+let refreshIntervalOut = null;
 
-function handleVideoError(img) {
+function handleVideoError(img, mode) {
     img.style.display = 'none';
-    const placeholder = document.getElementById('videoPlaceholder');
+    const placeholder = document.getElementById('videoPlaceholder' + mode.toUpperCase());
     if (placeholder) placeholder.style.display = 'block';
-    if (cameraStatus) {
-        cameraStatus.textContent = '● 攝影機未連接';
-        cameraStatus.style.color = '#dc3545';
+    const status = mode === 'in' ? cameraStatusIn : cameraStatusOut;
+    if (status) {
+        status.textContent = '● 攝影機未連接';
+        status.style.color = '#dc3545';
     }
     // 停止刷新
-    if (refreshInterval) {
-        clearInterval(refreshInterval);
-        refreshInterval = null;
+    const interval = mode === 'in' ? refreshIntervalIn : refreshIntervalOut;
+    if (interval) {
+        clearInterval(interval);
+        if (mode === 'in') refreshIntervalIn = null;
+        else refreshIntervalOut = null;
     }
 }
 
-function refreshVideo() {
+function refreshVideo(mode) {
+    const videoFeed = mode === 'in' ? videoFeedIn : videoFeedOut;
     if (videoFeed && videoFeed.style.display !== 'none' && videoFeed.src) {
         const timestamp = new Date().getTime();
-        videoFeed.src = '/video_feed.jpg?' + timestamp;
+        videoFeed.src = '/video_feed.jpg/' + mode + '?' + timestamp;
     }
 }
 
 // 檢查攝影機狀態
-async function checkCamera() {
+async function checkCamera(mode) {
     try {
-        const res = await fetch('/api/camera_status');
+        const res = await fetch('/api/camera_status/' + mode);
         const data = await res.json();
-        cameraAvailable = data.available;
+        const cameraAvailable = data.available;
+        const status = mode === 'in' ? cameraStatusIn : cameraStatusOut;
+        const videoFeed = mode === 'in' ? videoFeedIn : videoFeedOut;
         
         if (!cameraAvailable) {
-            handleVideoError(videoFeed);
+            handleVideoError(videoFeed, mode);
             return;
         }
         
         // 相機可用，開始刷新
-        if (cameraStatus) {
-            cameraStatus.textContent = '● 直播中';
-            cameraStatus.style.color = '#28a745';
+        if (status) {
+            status.textContent = '● 直播中';
+            status.style.color = '#28a745';
         }
         
-        refreshInterval = setInterval(refreshVideo, 200);
+        const interval = setInterval(() => refreshVideo(mode), 200);
+        if (mode === 'in') refreshIntervalIn = interval;
+        else refreshIntervalOut = interval;
     } catch (e) {
-        handleVideoError(videoFeed);
+        const videoFeed = mode === 'in' ? videoFeedIn : videoFeedOut;
+        handleVideoError(videoFeed, mode);
     }
 }
 
-if (videoFeed) {
-    videoFeed.onload = function() {
-        feedErrorCount = 0;
-        if (cameraStatus) {
-            cameraStatus.textContent = '● 直播中';
-            cameraStatus.style.color = '#28a745';
+// 初始化進口攝影機
+if (videoFeedIn) {
+    videoFeedIn.onload = function() {
+        feedErrorCountIn = 0;
+        if (cameraStatusIn) {
+            cameraStatusIn.textContent = '● 直播中';
+            cameraStatusIn.style.color = '#28a745';
         }
     };
-    videoFeed.onerror = function() {
-        feedErrorCount++;
-        if (feedErrorCount >= 3) {
-            handleVideoError(videoFeed);
+    videoFeedIn.onerror = function() {
+        feedErrorCountIn++;
+        if (feedErrorCountIn >= 3) {
+            handleVideoError(videoFeedIn, 'in');
         }
     };
-    
-    // 啟動時檢查相機狀態
-    checkCamera();
+    checkCamera('in');
+}
+
+// 初始化出口攝影機
+if (videoFeedOut) {
+    videoFeedOut.onload = function() {
+        feedErrorCountOut = 0;
+        if (cameraStatusOut) {
+            cameraStatusOut.textContent = '● 直播中';
+            cameraStatusOut.style.color = '#28a745';
+        }
+    };
+    videoFeedOut.onerror = function() {
+        feedErrorCountOut++;
+        if (feedErrorCountOut >= 3) {
+            handleVideoError(videoFeedOut, 'out');
+        }
+    };
+    checkCamera('out');
 }
 
 // 自動刷新記錄
