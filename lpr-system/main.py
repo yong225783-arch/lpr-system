@@ -552,58 +552,31 @@ def detect_plate_in_image(image_path):
     
     return plate_regions if plate_regions else None
 
+# 初始化 EasyOCR (在背景延遲載入)
+_easyocr_reader = None
+
+def get_easyocr_reader():
+    global _easyocr_reader
+    if _easyocr_reader is None:
+        import easyocr
+        _easyocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+        logger.info('EasyOCR 初始化完成')
+    return _easyocr_reader
+
 def ocr_image(image_path):
-    """使用 OCR.space API 辨識圖片中的文字"""
+    """使用 EasyOCR 辨識圖片中的文字"""
     try:
-        import requests
-        with open(image_path, 'rb') as f:
-            files = {'file': f}
-            data = {
-                'language': 'eng',
-                'isOverlayRequired': 'false',
-                'scale': 'true'
-            }
-            resp = requests.post('https://api.ocr.space/parse/image', 
-                               files=files, data=data, timeout=60)
-        
-        # 檢查回應狀態
-        if resp.status_code != 200:
-            logger.error(f'OCR API HTTP error: {resp.status_code}')
-            return []
-        
-        try:
-            result = resp.json()
-        except:
-            logger.error(f'OCR response is not JSON: {resp.text[:200]}')
-            return []
-        
-        # 檢查 API 錯誤
-        if isinstance(result, str):
-            logger.error(f'OCR returned string: {result}')
-            return []
-        
-        if result.get('IsErroredOnProcessing'):
-            logger.error(f'OCR processing error: {result.get("ErrorMessage")}')
-            return []
-        
-        parsed_results = result.get('ParsedResults')
-        if not parsed_results:
-            logger.error(f'No ParsedResults in OCR response')
-            return []
+        reader = get_easyocr_reader()
+        results = reader.readtext(image_path)
         
         texts = []
-        for pr in parsed_results:
-            if isinstance(pr, dict):
-                text = pr.get('ParsedText', '').strip()
-                if text:
-                    texts.append(text)
-            elif isinstance(pr, str):
-                texts.append(pr.strip())
+        for bbox, text, confidence in results:
+            if confidence > 0.3:  # 只取信心度 > 30% 的結果
+                texts.append(text.strip())
         
         return texts
-        
     except Exception as e:
-        logger.error(f'OCR failed: {e}')
+        logger.error(f'EasyOCR failed: {e}')
         return []
 
 def extract_plate_number(ocr_texts):
@@ -655,6 +628,18 @@ def api_detect_plate():
     ocr_texts = ocr_image(filepath)
     possible_plates = extract_plate_number(ocr_texts)
     
+    # 自動比對白名單
+    matched_owner = None
+    for plate in possible_plates:
+        owner = db.get_owner_by_plate(plate)
+        if owner:
+            matched_owner = owner
+            # 找到匹配的車牌，開門
+            if relay:
+                relay.open_gate()
+            db.add_record(plate, owner['name'], 'OCR自動辨識開門', filepath)
+            break
+    
     result = {
         'success': True,
         'filename': filename,
@@ -663,7 +648,10 @@ def api_detect_plate():
         'regions': regions,
         'ocr_texts': ocr_texts,
         'possible_plates': possible_plates,
-        'message': f'找到 {len(regions) if regions else 0} 個車牌區域，OCR 找到 {len(possible_plates)} 個可能車牌'
+        'matched_plate': matched_owner['plate'] if matched_owner else None,
+        'matched_owner': matched_owner['name'] if matched_owner else None,
+        'allowed': matched_owner is not None,
+        'message': f'OCR 找到 {len(possible_plates)} 個可能車牌' + (f'，{matched_owner["name"]} 驗證成功，已開門！' if matched_owner else '，無匹配白名單')
     }
     
     return jsonify(result)
