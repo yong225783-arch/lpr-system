@@ -168,18 +168,27 @@ def get_owner_by_id(owner_id):
     conn.close()
     return dict(row) if row else None
 
-def add_owner(name, phone, plate, car_type='轎車', slot_number=None, note=''):
+def add_owner(name, phone, plate, car_type='轎車', slot_number=None, note='', owner_id=None):
     conn = get_db()
     try:
-        conn.execute(
-            'INSERT INTO owners (name, phone, plate, car_type, slot_number, note) VALUES (?, ?, ?, ?, ?, ?)',
-            (name, phone, plate, car_type, slot_number, note)
-        )
+        if owner_id:
+            # 手動指定 ID
+            conn.execute(
+                'INSERT INTO owners (id, name, phone, plate, car_type, slot_number, note) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                (owner_id, name, phone, plate, car_type, slot_number if slot_number else None, note)
+            )
+        else:
+            conn.execute(
+                'INSERT INTO owners (name, phone, plate, car_type, slot_number, note) VALUES (?, ?, ?, ?, ?, ?)',
+                (name, phone, plate, car_type, slot_number if slot_number else None, note)
+            )
         conn.commit()
         conn.close()
         return True, '新增成功'
-    except sqlite3.IntegrityError:
+    except sqlite3.IntegrityError as e:
         conn.close()
+        if 'UNIQUE constraint failed: owners.id' in str(e):
+            return False, 'ID 已經存在'
         return False, '車牌已存在'
 
 def update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist):

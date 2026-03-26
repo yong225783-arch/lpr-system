@@ -23,7 +23,7 @@
         <tbody>
             {% for o in owners %}
             <tr class="{% if o.is_blacklist %}row-danger{% endif %}">
-                <td>{{ o.id }}</td>
+                <td>{{ loop.index }}</td>
                 <td>{{ o.name }}</td>
                 <td>{{ o.phone or '-' }}</td>
                 <td><strong>{{ o.plate }}</strong></td>
@@ -34,7 +34,7 @@
                     </span>
                 </td>
                 <td>
-                    <button class="btn-sm btn-edit" onclick="editOwner({{ o }})">編輯</button>
+                    <button class="btn-sm btn-edit" onclick='editOwner({{ o | tojson }})'>編輯</button>
                     <form method="POST" action="{{ url_for('owners_delete', owner_id=o.id) }}" style="display:inline" onsubmit="return confirm('確定要刪除嗎？')">
                         <button type="submit" class="btn-sm btn-danger">刪除</button>
                     </form>
@@ -53,7 +53,10 @@
             <span class="modal-close" onclick="closeModal()">&times;</span>
         </div>
         <form id="ownerForm" method="POST">
-            <input type="hidden" name="id" id="ownerId">
+            <div class="form-group">
+                <label>ID（留空則自動產生）</label>
+                <input type="number" name="id" id="ownerId" min="1">
+            </div>
             <div class="form-group">
                 <label>姓名 *</label>
                 <input type="text" name="name" id="ownerName" required>
@@ -65,6 +68,18 @@
             <div class="form-group">
                 <label>車牌 *</label>
                 <input type="text" name="plate" id="ownerPlate" required style="text-transform:uppercase">
+            </div>
+            <div class="form-group">
+                <label>車型</label>
+                <select name="car_type" id="ownerCarType">
+                    <option value="轎車">轎車</option>
+                    <option value="休旅車">休旅車</option>
+                    <option value="機車">機車</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>車位</label>
+                <input type="text" name="slot_number" id="ownerSlotNumber">
             </div>
             <div class="form-group">
                 <label>備註</label>
@@ -90,9 +105,12 @@ function showAddModal() {
     document.getElementById('modalTitle').textContent = '新增車主';
     document.getElementById('ownerForm').action = '/owners/add';
     document.getElementById('ownerId').value = '';
+    document.getElementById('ownerId').placeholder = '';
     document.getElementById('ownerName').value = '';
     document.getElementById('ownerPhone').value = '';
     document.getElementById('ownerPlate').value = '';
+    document.getElementById('ownerCarType').value = '轎車';
+    document.getElementById('ownerSlotNumber').value = '';
     document.getElementById('ownerNote').value = '';
     document.getElementById('ownerBlacklist').checked = false;
     document.getElementById('ownerModal').style.display = 'block';
@@ -102,9 +120,12 @@ function editOwner(o) {
     document.getElementById('modalTitle').textContent = '編輯車主';
     document.getElementById('ownerForm').action = '/owners/edit/' + o.id;
     document.getElementById('ownerId').value = o.id;
+    document.getElementById('ownerId').placeholder = '（ID 不可修改）';
     document.getElementById('ownerName').value = o.name;
     document.getElementById('ownerPhone').value = o.phone || '';
     document.getElementById('ownerPlate').value = o.plate;
+    document.getElementById('ownerCarType').value = o.car_type || '轎車';
+    document.getElementById('ownerSlotNumber').value = o.slot_number || '';
     document.getElementById('ownerNote').value = o.note || '';
     document.getElementById('ownerBlacklist').checked = o.is_blacklist == 1;
     document.getElementById('ownerModal').style.display = 'block';
