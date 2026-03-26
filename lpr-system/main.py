@@ -552,16 +552,78 @@ def detect_plate_in_image(image_path):
     
     return plate_regions if plate_regions else None
 
-# 初始化 EasyOCR (在背景延遲載入)
+# 初始化 YOLOv8 和 EasyOCR (在背景延遲載入)
+_yolo_model = None
 _easyocr_reader = None
 
+def get_yolo_model():
+    """取得 YOLOv8 模型"""
+    global _yolo_model
+    if _yolo_model is None:
+        from ultralytics import YOLO
+        # 使用 yolov8s (small) 模型，兼顧速度和準確率
+        _yolo_model = YOLO('yolov8s.pt')
+        logger.info('YOLOv8s 初始化完成')
+    return _yolo_model
+
 def get_easyocr_reader():
+    """取得 EasyOCR Reader"""
     global _easyocr_reader
     if _easyocr_reader is None:
         import easyocr
         _easyocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
         logger.info('EasyOCR 初始化完成')
     return _easyocr_reader
+
+def detect_vehicles_and_crop(image_path):
+    """
+    使用 YOLOv8 偵測車輛區域並裁剪
+    回傳: list of {'name': str, 'crop': numpy array, 'bbox': tuple}
+    """
+    try:
+        from ultralytics import YOLO
+        model = get_yolo_model()
+        img = cv2.imread(image_path)
+        if img is None:
+            return []
+        
+        # YOLOv8 偵測
+        results = model(img, verbose=False, conf=0.25)
+        
+        vehicle_classes = ['car', 'motorcycle', 'bus', 'truck', 'bicycle']
+        vehicle_crops = []
+        h, w = img.shape[:2]
+        
+        for r in results:
+            for box in r.boxes:
+                cls = int(box.cls[0])
+                conf = float(box.conf[0])
+                name = r.names[cls]
+                
+                if name in vehicle_classes and conf > 0.25:
+                    x1, y1, x2, y2 = box.xyxy[0].tolist()
+                    # 擴大裁剪區域以確保包含車牌
+                    pad_x = int((x2 - x1) * 0.1)
+                    pad_y = int((y2 - y1) * 0.05)
+                    x1 = max(0, x1 - pad_x)
+                    y1 = max(0, y1 - pad_y)
+                    x2 = min(w, x2 + pad_x)
+                    y2 = min(h, y2 + pad_y)
+                    
+                    crop = img[int(y1):int(y2), int(x1):int(x2)]
+                    vehicle_crops.append({
+                        'name': name,
+                        'conf': round(conf, 2),
+                        'crop': crop,
+                        'bbox': (int(x1), int(y1), int(x2), int(y2))
+                    })
+                    logger.info(f'YOLOv8 偵測到 {name} (conf={conf:.2f})')
+        
+        return vehicle_crops
+        
+    except Exception as e:
+        logger.error(f'YOLOv8 偵測失敗: {e}')
+        return []
 
 def ocr_image(image_path):
     """使用 EasyOCR 辨識圖片中的文字，回傳包含信心度的結果"""
@@ -580,6 +642,39 @@ def ocr_image(image_path):
         return texts
     except Exception as e:
         logger.error(f'EasyOCR failed: {e}')
+        return []
+
+def ocr_cropped_image(crop_img):
+    """對裁剪後的圖片使用 EasyOCR 辨識"""
+    try:
+        import numpy as np
+        import tempfile
+        reader = get_easyocr_reader()
+        
+        # 將 numpy array 轉成 temp file 讓 EasyOCR 處理
+        is_success, buffer = cv2.imencode('.jpg', crop_img)
+        if not is_success:
+            return []
+        
+        # 寫入暫存檔案
+        import tempfile
+        import os
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+            cv2.imwrite(tmp.name, crop_img)
+            results = reader.readtext(tmp.name)
+            os.unlink(tmp.name)  # 刪除暫存檔
+        
+        texts = []
+        for bbox, text, confidence in results:
+            if confidence > 0.2:
+                texts.append({
+                    'text': text.strip(),
+                    'confidence': round(confidence, 2)
+                })
+        
+        return texts
+    except Exception as e:
+        logger.error(f'EasyOCR crop failed: {e}')
         return []
 
 def extract_plate_number(ocr_texts):
@@ -612,7 +707,7 @@ def extract_plate_number(ocr_texts):
 
 @app.route('/api/detect_plate', methods=['POST'])
 def api_detect_plate():
-    """辨識上傳圖片中的車牌"""
+    """辨識上傳圖片中的車牌（YOLOv8 + EasyOCR 架構）"""
     if 'user_id' not in session:
         return jsonify({'success': False, 'message': '未登入'})
     
@@ -629,37 +724,86 @@ def api_detect_plate():
     os.makedirs('captures', exist_ok=True)
     file.save(filepath)
     
-    # 檢測車牌區域
-    regions = detect_plate_in_image(filepath)
+    # === YOLOv8 + EasyOCR 架構 ===
     
-    # OCR 辨識
-    ocr_texts = ocr_image(filepath)
-    possible_plates = extract_plate_number(ocr_texts)
+    # Step 1: YOLOv8 偵測車輛區域
+    logger.info(f'開始處理圖片: {filepath}')
+    vehicle_crops = detect_vehicles_and_crop(filepath)
+    logger.info(f'YOLOv8 偵測到 {len(vehicle_crops)} 個車輛區域')
     
-    # 自動比對白名單
+    # Step 2: 對每個車輛區域進行 EasyOCR 辨識
+    all_ocr_texts = []
+    vehicle_results = []
+    
+    for vc in vehicle_crops:
+        ocr_texts = ocr_cropped_image(vc['crop'])
+        plates = extract_plate_number(ocr_texts)
+        vehicle_results.append({
+            'vehicle_type': vc['name'],
+            'vehicle_conf': vc['conf'],
+            'bbox': vc['bbox'],
+            'ocr_texts': ocr_texts,
+            'possible_plates': plates
+        })
+        all_ocr_texts.extend(ocr_texts)
+        logger.info(f'  {vc["name"]} 區域 OCR: {plates}')
+    
+    # Step 3: 對全圖也做一次 OCR（作為備援）
+    full_ocr_texts = ocr_image(filepath)
+    all_ocr_texts.extend(full_ocr_texts)
+    full_plates = extract_plate_number(full_ocr_texts)
+    
+    # Step 4: 合併所有偵測到的車牌
+    all_possible_plates = extract_plate_number(all_ocr_texts)
+    
+    # 如果 YOLOv8 有偵測到車輛，優先使用車輛區域的 OCR 結果
+    if vehicle_results:
+        best_plates = vehicle_results[0]['possible_plates'] if vehicle_results[0]['possible_plates'] else all_possible_plates
+        best_vehicle = vehicle_results[0]
+    else:
+        best_plates = all_possible_plates
+        best_vehicle = None
+    
+    # Step 5: 比對白名單
     matched_owner = None
-    for plate in possible_plates:
+    matched_plate = None
+    for plate in best_plates:
         owner = db.get_owner_by_plate(plate)
         if owner:
             matched_owner = owner
+            matched_plate = plate
             # 找到匹配的車牌，開門
             if relay:
                 relay.open_gate()
-            db.add_record(plate, owner['name'], 'OCR自動辨識開門', filepath)
+            db.add_record(plate, owner['name'], 'YOLOv8+EasyOCR 自動辨識開門', filepath)
+            logger.info(f'車牌 {plate} 比對成功，{owner["name"]} 已開門')
             break
+    
+    # 計算平均 OCR 信心度
+    avg_conf = 0
+    if all_ocr_texts and isinstance(all_ocr_texts[0], dict):
+        avg_conf = sum([t['confidence'] for t in all_ocr_texts]) / len(all_ocr_texts) * 100
     
     result = {
         'success': True,
         'filename': filename,
         'filepath': filepath,
-        'detected_regions': len(regions) if regions else 0,
-        'regions': regions,
-        'ocr_texts': ocr_texts,
-        'possible_plates': possible_plates,
+        'yolo_detected': len(vehicle_crops),
+        'vehicle_results': [{
+            'vehicle_type': vr['vehicle_type'],
+            'vehicle_conf': vr['vehicle_conf'],
+            'plates': vr['possible_plates']
+        } for vr in vehicle_results],
+        'full_image_plates': full_plates,
+        'all_plates': all_possible_plates,
+        'best_plate': matched_plate or (best_plates[0] if best_plates else None),
+        'ocr_confidence': round(avg_conf),
+        'ocr_texts': all_ocr_texts if isinstance(all_ocr_texts[0], dict) else [{'text': t, 'confidence': 0.5} for t in all_ocr_texts],
         'matched_plate': matched_owner['plate'] if matched_owner else None,
         'matched_owner': matched_owner['name'] if matched_owner else None,
         'allowed': matched_owner is not None,
-        'message': f'OCR 找到 {len(possible_plates)} 個可能車牌' + (f'，{matched_owner["name"]} 驗證成功，已開門！' if matched_owner else '，無匹配白名單')
+        'message': (f'✅ {matched_owner["name"]} 驗證成功，已開門！' if matched_owner 
+                    else f'YOLOv8 偵測到 {len(vehicle_crops)} 個車輛，EasyOCR 找到 {len(all_possible_plates)} 個可能車牌，無匹配白名單')
     }
     
     return jsonify(result)

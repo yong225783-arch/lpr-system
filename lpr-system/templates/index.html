@@ -43,6 +43,10 @@
                     <div style="font-size:14px; color:#666; margin-bottom:5px;">車主</div>
                     <div id="ocr-owner" style="font-size:18px; font-weight:bold; color:#333;">-</div>
                 </div>
+                <div>
+                    <div style="font-size:14px; color:#666; margin-bottom:5px;">YOLOv8 偵測</div>
+                    <div id="ocr-vehicle" style="font-size:16px; font-weight:bold; color:#6f42c1;">-</div>
+                </div>
             </div>
             <div id="ocr-raw-text" style="margin-top:15px; padding:10px; background:#fff; border-radius:5px; font-size:12px; color:#666;"></div>
         </div>
@@ -297,32 +301,33 @@ document.getElementById('upload-form')?.addEventListener('submit', async (e) => 
         const detectData = await detectRes.json();
         
         // 更新 OCR 結果顯示
-        if (detectData.possible_plates && detectData.possible_plates.length > 0) {
-            const bestPlate = detectData.possible_plates[0];
+        if (detectData.all_plates && detectData.all_plates.length > 0) {
+            const bestPlate = detectData.best_plate || detectData.all_plates[0];
             document.getElementById('ocr-plate').textContent = bestPlate;
             
             // 計算平均信心度
-            let totalConf = 0;
-            let confCount = 0;
-            if (detectData.ocr_texts) {
-                detectData.ocr_texts.forEach(t => {
-                    if (t.confidence) {
-                        totalConf += t.confidence;
-                        confCount++;
-                    }
-                });
-            }
-            const avgConf = confCount > 0 ? Math.round((totalConf / confCount) * 100) : 85;
+            const avgConf = detectData.ocr_confidence || 85;
             document.getElementById('ocr-confidence').textContent = avgConf + '%';
             
+            // 顯示 YOLOv8 車輛偵測結果
+            if (detectData.yolo_detected > 0 && detectData.vehicle_results) {
+                const vr = detectData.vehicle_results[0];
+                if (vr) {
+                    document.getElementById('ocr-vehicle').textContent = `${vr.vehicle_type} (${(vr.vehicle_conf * 100).toFixed(0)}%)`;
+                }
+            } else {
+                document.getElementById('ocr-vehicle').textContent = '未偵測';
+            }
+            
             // 顯示原始辨識文字
-            if (detectData.ocr_texts) {
+            if (detectData.ocr_texts && detectData.ocr_texts.length > 0) {
                 const rawTexts = detectData.ocr_texts.map(t => `${t.text} (${Math.round(t.confidence * 100)}%)`).join(', ');
                 document.getElementById('ocr-raw-text').textContent = '原始文字: ' + rawTexts;
             }
         } else {
             document.getElementById('ocr-plate').textContent = '未偵測到';
             document.getElementById('ocr-confidence').textContent = '-';
+            document.getElementById('ocr-vehicle').textContent = '-';
         }
         
         // 顯示比對結果
@@ -332,11 +337,21 @@ document.getElementById('upload-form')?.addEventListener('submit', async (e) => 
             document.getElementById('ocr-owner').textContent = detectData.matched_owner || '-';
             resultDiv.innerHTML = '<div style="padding:15px; border-radius:8px; background:#d4edda; color:#155724;"><strong>✅ ' + detectData.message + '</strong></div>';
             refreshRecords();
-        } else if (detectData.possible_plates && detectData.possible_plates.length > 0) {
+        } else if (detectData.all_plates && detectData.all_plates.length > 0) {
             document.getElementById('ocr-match').textContent = '⚠️ 不在白名單';
             document.getElementById('ocr-match').style.color = '#ffc107';
             document.getElementById('ocr-owner').textContent = '-';
-            resultDiv.innerHTML = '<div style="padding:15px; border-radius:8px; background:#fff3cd; color:#856404;"><strong>⚠️ ' + detectData.message + '</strong></div>';
+            
+            // 顯示 YOLOv8 偵測結果
+            let yoloInfo = '';
+            if (detectData.yolo_detected > 0 && detectData.vehicle_results) {
+                const vr = detectData.vehicle_results[0];
+                if (vr) {
+                    yoloInfo = `<br><small>🚗 YOLOv8 偵測到: ${vr.vehicle_type} (${(vr.vehicle_conf * 100).toFixed(0)}%)</small>`;
+                }
+            }
+            
+            resultDiv.innerHTML = '<div style="padding:15px; border-radius:8px; background:#fff3cd; color:#856404;"><strong>⚠️ ' + detectData.message + '</strong>' + yoloInfo + '</div>';
         } else {
             document.getElementById('ocr-match').textContent = '❌ 無法辨識';
             document.getElementById('ocr-match').style.color = '#dc3545';
