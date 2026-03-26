@@ -366,6 +366,13 @@ def api_update_record(record_id):
     conn.close()
     return jsonify({'success': True})
 
+@app.route('/api/records/recent')
+def api_records_recent():
+    """取得最近的記錄（供首頁自動刷新用）"""
+    limit = int(request.args.get('limit', 10))
+    records = db.get_records(limit=limit)
+    return jsonify({'records': records})
+
 # --- 手動開門 ---
 
 @app.route('/open', methods=['POST'])

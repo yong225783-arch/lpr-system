@@ -22,7 +22,33 @@
         </div>
     </div>
 
-    <div class="stats-grid">
+    <!-- 功能按鈕區 -->
+    <div class="stats-grid" style="margin-bottom:20px;">
+        <div class="stat-card stat-card-action">
+            <div class="stat-icon">🔑</div>
+            <div class="stat-info">
+                <button id="btnManualOpen" class="btn-primary btn-large">
+                    手動開門
+                </button>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">📷</div>
+            <div class="stat-info">
+                <button id="btnCapture" class="btn-secondary btn-large">
+                    截圖拍照
+                </button>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">📤</div>
+            <div class="stat-info">
+                <button id="btnUpload" class="btn-secondary btn-large">
+                    上傳測試
+                </button>
+            </div>
+        </div>
+    </div>
 
     <!-- 上傳測試區塊 -->
     <div class="section" id="upload-section" style="display:none;">
@@ -38,7 +64,7 @@
             </div>
             <br>
             <button type="submit" class="btn-primary">上傳並測試</button>
-            <button type="button" class="btn-secondary" onclick="$('#upload-section').hide()">關閉</button>
+            <button type="button" class="btn-secondary" onclick="document.getElementById('upload-section').style.display='none'">關閉</button>
         </form>
         <div id="upload-result" style="margin-top:20px;"></div>
     </div>
@@ -46,7 +72,7 @@
     <div class="section">
         <h2>📋 最近開門紀錄</h2>
         <div class="table-responsive">
-            <table class="table">
+            <table class="table" id="records-table">
                 <thead>
                     <tr>
                         <th>時間</th>
@@ -153,6 +179,34 @@ if (videoFeed) {
     // 啟動時檢查相機狀態
     checkCamera();
 }
+
+// 自動刷新記錄
+async function refreshRecords() {
+    try {
+        const res = await fetch('/api/records/recent?limit=10');
+        const data = await res.json();
+        const tbody = document.querySelector('#records-table tbody');
+        if (tbody && data.records) {
+            tbody.innerHTML = data.records.map(r => {
+                const badgeClass = r.result === '已授權' ? 'success' : (r.result === '未授權' ? 'danger' : 'info');
+                const rowClass = r.result === '已授權' ? 'row-success' : (r.result === '未授權' ? 'row-danger' : '');
+                return `<tr class="${rowClass}">
+                    <td>${r.created_at}</td>
+                    <td><strong>${r.plate}</strong></td>
+                    <td>${r.owner_name || '-'}</td>
+                    <td><span class="badge badge-${badgeClass}">${r.result}</span></td>
+                    <td>${r.note || ''}</td>
+                </tr>`;
+            }).join('');
+        }
+    } catch (e) {
+        console.error('刷新記錄失敗:', e);
+    }
+}
+
+// 每 5 秒自動刷新記錄
+setInterval(refreshRecords, 5000);
+refreshRecords();
 
 document.getElementById('btnManualOpen')?.addEventListener('click', async () => {
     const note = prompt('開門備註（選填）:', '');

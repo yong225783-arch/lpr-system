@@ -104,7 +104,6 @@
 function showAddModal() {
     document.getElementById('modalTitle').textContent = '新增車主';
     document.getElementById('ownerForm').action = '/owners/add';
-    document.getElementById('ownerId').value = '';
     document.getElementById('ownerMemberId').value = '';
     document.getElementById('ownerName').value = '';
     document.getElementById('ownerPhone').value = '';
@@ -119,7 +118,6 @@ function showAddModal() {
 function editOwner(o) {
     document.getElementById('modalTitle').textContent = '編輯車主';
     document.getElementById('ownerForm').action = '/owners/edit/' + o.id;
-    document.getElementById('ownerId').value = o.id;
     document.getElementById('ownerMemberId').value = o.member_id || '';
     document.getElementById('ownerName').value = o.name;
     document.getElementById('ownerPhone').value = o.phone || '';
