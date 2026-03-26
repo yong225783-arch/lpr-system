@@ -282,12 +282,13 @@ def owners_add():
     car_type = request.form.get('car_type', '轎車').strip()
     slot_number = request.form.get('slot_number', '').strip()
     note = request.form.get('note', '').strip()
+    member_id = request.form.get('member_id', '').strip()
     if not name or not plate:
         flash('姓名和車牌必填', 'error')
     else:
         owner_id = request.form.get('id', '').strip()
         owner_id = int(owner_id) if owner_id else None
-        ok, msg = db.add_owner(name, phone, plate, car_type, slot_number, note, owner_id)
+        ok, msg = db.add_owner(name, phone, plate, car_type, slot_number, note, owner_id, member_id)
         if not ok:
             flash(msg, 'error')
     return redirect(url_for('owners'))
@@ -302,8 +303,9 @@ def owners_edit(owner_id):
     car_type = request.form.get('car_type', '轎車').strip()
     slot_number = request.form.get('slot_number', '').strip()
     note = request.form.get('note', '').strip()
+    member_id = request.form.get('member_id', '').strip()
     is_blacklist = 1 if request.form.get('is_blacklist') else 0
-    ok, msg = db.update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist)
+    ok, msg = db.update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist, member_id)
     if not ok:
         flash(msg, 'error')
     return redirect(url_for('owners'))

@@ -23,7 +23,7 @@
         <tbody>
             {% for o in owners %}
             <tr class="{% if o.is_blacklist %}row-danger{% endif %}">
-                <td>{{ loop.index }}</td>
+                <td>{{ o.member_id or o.id }}</td>
                 <td>{{ o.name }}</td>
                 <td>{{ o.phone or '-' }}</td>
                 <td><strong>{{ o.plate }}</strong></td>
@@ -54,8 +54,8 @@
         </div>
         <form id="ownerForm" method="POST">
             <div class="form-group">
-                <label>ID（留空則自動產生）</label>
-                <input type="number" name="id" id="ownerId" min="1">
+                <label>編號（自訂顯示用，例如：22）</label>
+                <input type="text" name="member_id" id="ownerMemberId">
             </div>
             <div class="form-group">
                 <label>姓名 *</label>
@@ -105,7 +105,7 @@ function showAddModal() {
     document.getElementById('modalTitle').textContent = '新增車主';
     document.getElementById('ownerForm').action = '/owners/add';
     document.getElementById('ownerId').value = '';
-    document.getElementById('ownerId').placeholder = '';
+    document.getElementById('ownerMemberId').value = '';
     document.getElementById('ownerName').value = '';
     document.getElementById('ownerPhone').value = '';
     document.getElementById('ownerPlate').value = '';
@@ -120,7 +120,7 @@ function editOwner(o) {
     document.getElementById('modalTitle').textContent = '編輯車主';
     document.getElementById('ownerForm').action = '/owners/edit/' + o.id;
     document.getElementById('ownerId').value = o.id;
-    document.getElementById('ownerId').placeholder = '（ID 不可修改）';
+    document.getElementById('ownerMemberId').value = o.member_id || '';
     document.getElementById('ownerName').value = o.name;
     document.getElementById('ownerPhone').value = o.phone || '';
     document.getElementById('ownerPlate').value = o.plate;
