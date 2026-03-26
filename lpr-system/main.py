@@ -707,32 +707,31 @@ def apply_perspective_transform(crop_img):
         return crop_img
 
 def ocr_with_paddleocr(image_path):
-    """使用 EasyOCR 辨識圖片中的文字（穩定版）"""
+    """使用 EasyOCR 辨識圖片中的文字（優化版）"""
     try:
         import cv2
         ocr = get_easyocr()
         
-        # 讀取圖片並放大（讓 OCR 更容易辨識）
+        # 讀取圖片
         img = cv2.imread(image_path)
         if img is None:
             return []
         
+        # 放大圖片讓 OCR 更容易辨識
         h, w = img.shape[:2]
-        # 放大 2 倍
         img_large = cv2.resize(img, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
         
-        # 轉灰階並增強對比
+        # 簡單的前處理：轉灰階 + 高斯模糊去噪
         gray = cv2.cvtColor(img_large, cv2.COLOR_BGR2GRAY)
-        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(4,4))
-        enhanced = clahe.apply(gray)
-        img_processed = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+        blurred = cv2.GaussianBlur(gray, (3, 3), 0)
         
         # 儲存處理後的圖片用於 OCR
         import tempfile
         import os
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-            cv2.imwrite(tmp.name, img_processed)
-            result = ocr.readtext(tmp.name)
+            cv2.imwrite(tmp.name, blurred)
+            # 使用 EasyOCR 的簡單模式，不使用 GPU
+            result = ocr.readtext(tmp.name, paragraph=False, detail=1)
             os.unlink(tmp.name)
         
         texts = []
@@ -744,22 +743,29 @@ def ocr_with_paddleocr(image_path):
                     'confidence': round(conf, 2)
                 })
         
+        logger.info(f'EasyOCR 找到了 {len(texts)} 個文字區域')
         return texts
     except Exception as e:
         logger.error(f'EasyOCR failed: {e}')
         return []
 
 def ocr_crop_with_paddleocr(crop_img):
-    """對裁剪後的車牌區域使用 EasyOCR 辨識（穩定版）"""
+    """對裁剪後的車牌區域使用 EasyOCR 辨識（優化版）"""
     try:
         import tempfile
         import os
+        import cv2
         ocr = get_easyocr()
         
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-            cv2.imwrite(tmp.name, crop_img)
-            result = ocr.readtext(tmp.name)
-            os.unlink(tmp.name)
+        # 確保裁切圖片足夠大
+        h, w = crop_img.shape[:2]
+        if h < 30:
+            scale = 30 / h
+            crop_img = cv2.resize(crop_img, (int(w * scale), 30))
+        
+        # 放大 3 倍以獲得更多細節
+        h, w = crop_img.shape[:2]
+        img_large = cv2.resize(crop_img, (w * 3, h * 3), interpolation=cv2.INTER_CUBIC)
         
         texts = []
         if result:
@@ -770,6 +776,7 @@ def ocr_crop_with_paddleocr(crop_img):
                     'confidence': round(conf, 2)
                 })
         
+        logger.info(f'EasyOCR crop 找到了 {len(texts)} 個文字: {[t["text"] for t in texts]}')
         return texts
     except Exception as e:
         logger.error(f'EasyOCR crop failed: {e}')
@@ -795,6 +802,8 @@ def filter_plate_text(ocr_texts):
     plates = []
     for t in ocr_texts:
         text = t['text'].strip()
+        conf = t.get('confidence', 1.0)
+        
         # 跳過包含中文的文字（如「台灣省」）
         if chinese_pattern.search(text):
             continue
@@ -803,6 +812,9 @@ def filter_plate_text(ocr_texts):
             continue
         # 必須包含數字和字母
         if not re.search(r'[0-9]', text) or not re.search(r'[A-Z]', text):
+            continue
+        # 信心度太低就跳過（但接受 0.3 以上的）
+        if conf < 0.3:
             continue
         
         text_upper = text.upper()
