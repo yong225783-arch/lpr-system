@@ -172,6 +172,7 @@ relay_port = os.environ.get('RELAY_PORT', None)
 simulate_relay = os.environ.get('SIMULATE_RELAY', '').lower() in ('1', 'true', 'yes')
 
 if simulate_relay:
+    from relay import RelayController
     relay = RelayController(simulate=True)
     logger.info('繼電器：模擬模式（無硬體）')
 elif relay_port:
@@ -183,8 +184,37 @@ elif relay_port:
         relay = None
         logger.warning('繼電器連接失敗，開門功能將無法使用')
 else:
+    from relay import RelayController
     relay = RelayController(simulate=True)
     logger.info('繼電器：模擬模式（無硬體）')
+
+# ============ 攝影機串流 / 截圖 ============
+
+@app.route('/video_feed')
+def video_feed():
+    """回傳即時影像（每次請求回傳一幀）"""
+    if 'user_id' not in session:
+        return '', 401
+    
+    if lpr.camera and lpr.camera.isOpened():
+        ret, frame = lpr.camera.read()
+        if ret:
+            # 儲存到記憶體
+            _, buffer = cv2.imencode('.jpg', frame)
+            return buffer.tobytes(), 200, {'Content-Type': 'image/jpeg'}
+    
+    # 如果沒有攝影機，回傳預設圖片
+    return '', 404
+
+@app.route('/video_feed.jpg')
+def video_feed_jpg():
+    """回傳即時影像 JPG（可用於 img src）"""
+    if lpr.camera and lpr.camera.isOpened():
+        ret, frame = lpr.camera.read()
+        if ret:
+            _, buffer = cv2.imencode('.jpg', frame)
+            return buffer.tobytes(), 200, {'Content-Type': 'image/jpeg'}
+    return '', 404
 
 # ============ Web 路由 ============
 
@@ -433,6 +463,128 @@ def test_relay():
         ok = relay.open_gate()
         return jsonify({'success': ok, 'message': '' if ok else '連接失敗'})
     return jsonify({'success': False, 'message': '繼電器未連接'})
+
+# ============ 圖片上傳測試 ============
+
+@app.route('/upload-test')
+def upload_test():
+    """圖片上傳測試頁面"""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    return '''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>車牌測試上傳</title>
+        <meta charset="UTF-8">
+        <style>
+            body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+            .upload-area { border: 3px dashed #ccc; padding: 40px; text-align: center; border-radius: 10px; }
+            .preview { margin-top: 20px; max-width: 100%; }
+            .result { margin-top: 20px; padding: 20px; border-radius: 10px; }
+            .result.success { background: #d4edda; color: #155724; }
+            .result.error { background: #f8d7da; color: #721c24; }
+            .result.info { background: #d1ecf1; color: #0c5460; }
+            input[type="file"] { margin: 20px 0; }
+            button { background: #007bff; color: white; padding: 15px 30px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+            button:hover { background: #0056b3; }
+            .plate-input { margin-top: 20px; }
+            input[type="text"] { padding: 10px; font-size: 16px; width: 200px; }
+        </style>
+    </head>
+    <body>
+        <h1>🚗 車牌測試上傳</h1>
+        <p>上傳一張包含車牌的圖片來測試系統</p>
+        
+        <div class="upload-area">
+            <form method="POST" action="/api/upload_test" enctype="multipart/form-data">
+                <input type="file" name="image" accept="image/*" required onchange="previewImage(this)">
+                <br>
+                <img id="preview" class="preview" style="display:none;">
+                <br><br>
+                <div class="plate-input">
+                    <label>手動輸入車牌（用於比對）：</label><br><br>
+                    <input type="text" name="manual_plate" placeholder="例如：ABC-1234">
+                </div>
+                <br><br>
+                <button type="submit">上傳並測試</button>
+            </form>
+        </div>
+        
+        <div style="margin-top:30px;">
+            <h3>📋 快速測試</h3>
+            <p>上傳後，系統會：</p>
+            <ol>
+                <li>儲存圖片到 captures 資料夾</li>
+                <li>如果選擇了「手動車牌」，系統會直接比對白名單</li>
+                <li>開門（模擬模式）如果車牌在白名單中</li>
+            </ol>
+        </div>
+        
+        <script>
+        function previewImage(input) {
+            if (input.files && input.files[0]) {
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('preview').src = e.target.result;
+                    document.getElementById('preview').style.display = 'block';
+                }
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+        </script>
+    </body>
+    </html>
+    '''
+
+@app.route('/api/upload_test', methods=['POST'])
+def api_upload_test():
+    """處理上傳的圖片"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登入'})
+    
+    if 'image' not in request.files:
+        return jsonify({'success': False, 'message': '沒有上傳檔案'})
+    
+    file = request.files['image']
+    manual_plate = request.form.get('manual_plate', '').strip().upper()
+    
+    if file.filename == '':
+        return jsonify({'success': False, 'message': '沒有選擇檔案'})
+    
+    # 儲存圖片
+    filename = f"upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
+    filepath = os.path.join('captures', filename)
+    os.makedirs('captures', exist_ok=True)
+    file.save(filepath)
+    
+    result = {
+        'success': True,
+        'filename': filename,
+        'filepath': filepath,
+        'message': '圖片已儲存'
+    }
+    
+    # 如果有填寫手動車牌，直接比對
+    if manual_plate:
+        owner = db.get_owner_by_plate(manual_plate)
+        if owner:
+            result['plate'] = manual_plate
+            result['owner'] = owner['name']
+            result['allowed'] = True
+            result['message'] = f'車牌 {manual_plate} 比對成功！{owner["name"]} - 已開門'
+            # 開門
+            if relay:
+                relay.open_gate()
+            # 記錄
+            db.add_record(manual_plate, owner['name'], '測試開門', filepath)
+        else:
+            result['plate'] = manual_plate
+            result['allowed'] = False
+            result['message'] = f'車牌 {manual_plate} 不在白名單中'
+            db.add_record(manual_plate, None, '測試-無授權', filepath)
+    
+    return jsonify(result)
 
 # ============ 計費管理 ============
 

@@ -5,37 +5,41 @@
 <div class="dashboard">
     <h1>📊 即時狀態</h1>
 
+    <!-- IP Cam 影像區 -->
+    <div class="section" style="margin-bottom:20px;">
+        <h2>📹 即時影像</h2>
+        <div style="position:relative; background:#000; border-radius:10px; overflow:hidden;">
+            <img id="videoFeed" src="/video_feed.jpg" style="width:100%; max-width:640px; display:block; margin:0 auto;" 
+                 onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+            <div id="videoPlaceholder" style="display:none; padding:60px; text-align:center; color:#999; background:#1a1a1a;">
+                <p>📷 攝影機未連接</p>
+                <small>請設定 CAMERA_SOURCE 環境變量</small>
+            </div>
+            <div style="position:absolute; top:10px; right:10px; background:rgba(0,0,0,0.6); color:white; padding:5px 10px; border-radius:5px; font-size:12px;">
+                <span id="cameraStatus">● 連線中</span>
+            </div>
+        </div>
+    </div>
+
     <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-icon">👥</div>
-            <div class="stat-info">
-                <div class="stat-value">{{ owners_count }}</div>
-                <div class="stat-label">已登錄車主</div>
+
+    <!-- 上傳測試區塊 -->
+    <div class="section" id="upload-section" style="display:none;">
+        <h2>📤 圖片上傳測試</h2>
+        <form id="upload-form" enctype="multipart/form-data">
+            <div class="upload-area">
+                <input type="file" id="upload-image" name="image" accept="image/*" required>
+                <br><br>
+                <img id="upload-preview" style="max-width:300px; display:none; border:1px solid #ddd; border-radius:5px;">
+                <br><br>
+                <label>手動車牌（用於比對白名單）：</label><br><br>
+                <input type="text" id="upload-plate" name="manual_plate" placeholder="例如：ABC-1234" style="padding:8px; font-size:14px; width:200px;">
             </div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-icon">🚪</div>
-            <div class="stat-info">
-                <div class="stat-value">{{ today_count }}</div>
-                <div class="stat-label">今日開門次數</div>
-            </div>
-        </div>
-        <div class="stat-card stat-card-action">
-            <div class="stat-icon">🔑</div>
-            <div class="stat-info">
-                <button id="btnManualOpen" class="btn-primary btn-large">
-                    手動開門
-                </button>
-            </div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-icon">📷</div>
-            <div class="stat-info">
-                <button id="btnCapture" class="btn-secondary btn-large">
-                    截圖拍照
-                </button>
-            </div>
-        </div>
+            <br>
+            <button type="submit" class="btn-primary">上傳並測試</button>
+            <button type="button" class="btn-secondary" onclick="$('#upload-section').hide()">關閉</button>
+        </form>
+        <div id="upload-result" style="margin-top:20px;"></div>
     </div>
 
     <div class="section">
@@ -77,6 +81,35 @@
 
 {% block scripts %}
 <script>
+// 即時影像自動更新
+let videoFeed = document.getElementById('videoFeed');
+let cameraStatus = document.getElementById('cameraStatus');
+let feedErrorCount = 0;
+
+function refreshVideo() {
+    if (videoFeed) {
+        const timestamp = new Date().getTime();
+        videoFeed.src = '/video_feed.jpg?' + timestamp;
+    }
+}
+
+if (videoFeed) {
+    videoFeed.onload = function() {
+        feedErrorCount = 0;
+        cameraStatus.textContent = '● 直播中';
+        cameraStatus.style.color = '#28a745';
+    };
+    videoFeed.onerror = function() {
+        feedErrorCount++;
+        if (feedErrorCount > 3) {
+            cameraStatus.textContent = '● 攝影機未連接';
+            cameraStatus.style.color = '#dc3545';
+        }
+    };
+    // 每 100ms 刷新一次（約10fps）
+    setInterval(refreshVideo, 100);
+}
+
 document.getElementById('btnManualOpen')?.addEventListener('click', async () => {
     const note = prompt('開門備註（選填）:', '');
     const res = await fetch('/open', {
@@ -93,8 +126,57 @@ document.getElementById('btnCapture')?.addEventListener('click', async () => {
     const data = await res.json();
     if (data.success) {
         alert('📷 拍照成功！\n檔案：' + data.image);
+        refreshVideo();  // 更新影像
     } else {
         alert('❌ 拍照失敗');
+    }
+});
+
+document.getElementById('btnUpload')?.addEventListener('click', () => {
+    const section = document.getElementById('upload-section');
+    section.style.display = section.style.display === 'none' ? 'block' : 'none';
+});
+
+document.getElementById('upload-image')?.addEventListener('change', function(e) {
+    if (this.files && this.files[0]) {
+        const reader = new FileReader();
+        reader.onload = function(ev) {
+            const preview = document.getElementById('upload-preview');
+            preview.src = ev.target.result;
+            preview.style.display = 'block';
+        };
+        reader.readAsDataURL(this.files[0]);
+    }
+});
+
+document.getElementById('upload-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const resultDiv = document.getElementById('upload-result');
+    
+    resultDiv.innerHTML = '<p style="color:#666;">上傳中...</p>';
+    
+    try {
+        const res = await fetch('/api/upload_test', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+            let html = '<div style="padding:15px; border-radius:8px; background:#d4edda; color:#155724;">';
+            html += '<strong>✅ ' + data.message + '</strong>';
+            if (data.allowed) {
+                html += '<br>車主：' + data.owner;
+            }
+            html += '<br>檔案：' + data.filename;
+            html += '</div>';
+            resultDiv.innerHTML = html;
+        } else {
+            resultDiv.innerHTML = '<div style="padding:15px; border-radius:8px; background:#f8d7da; color:#721c24;">❌ ' + data.message + '</div>';
+        }
+    } catch (err) {
+        resultDiv.innerHTML = '<div style="padding:15px; color:#dc3545;">❌ 上傳失敗：' + err.message + '</div>';
     }
 });
 </script>

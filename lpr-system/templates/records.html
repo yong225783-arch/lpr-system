@@ -19,6 +19,7 @@
     <table class="table">
         <thead>
             <tr>
+                <th>截圖</th>
                 <th>ID</th>
                 <th>時間</th>
                 <th>車牌</th>
@@ -30,6 +31,16 @@
         <tbody>
             {% for r in records %}
             <tr class="{% if r.result == '已授權' %}row-success{% elif r.result == '未授權' %}row-danger{% endif %}">
+                <td>
+                    {% if r.image_path %}
+                    <a href="/{{ r.image_path }}" target="_blank">
+                        <img src="/{{ r.image_path }}" style="width:80px; height:60px; object-fit:cover; border-radius:5px; cursor:pointer;" 
+                             onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 80 60%22><rect fill=%22%23eee%22 width=%2280%22 height=%2260%22/><text x=%2240%22 y=%2235%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%2210%22>無圖</text></svg>';">
+                    </a>
+                    {% else %}
+                    <span style="color:#ccc;">-</span>
+                    {% endif %}
+                </td>
                 <td>{{ r.id }}</td>
                 <td>{{ r.created_at }}</td>
                 <td><strong>{{ r.plate }}</strong></td>
