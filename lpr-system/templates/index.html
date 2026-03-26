@@ -8,12 +8,13 @@
     <!-- IP Cam 影像區 -->
     <div class="section" style="margin-bottom:20px;">
         <h2>📹 即時影像</h2>
-        <div style="position:relative; background:#000; border-radius:10px; overflow:hidden;">
+        <div id="videoContainer" style="position:relative; background:#1a1a1a; border-radius:10px; overflow:hidden; min-height:200px;">
             <img id="videoFeed" src="/video_feed.jpg" style="width:100%; max-width:640px; display:block; margin:0 auto;" 
-                 onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-            <div id="videoPlaceholder" style="display:none; padding:60px; text-align:center; color:#999; background:#1a1a1a;">
-                <p>📷 攝影機未連接</p>
-                <small>請設定 CAMERA_SOURCE 環境變量</small>
+                 onerror="handleVideoError(this)">
+            <div id="videoPlaceholder" style="display:none; padding:60px; text-align:center; color:#666;">
+                <div style="font-size:60px; margin-bottom:15px;">📷</div>
+                <p style="font-size:18px; margin-bottom:10px;">攝影機未連接</p>
+                <small style="color:#888;">在正式主機設定 CAMERA_SOURCE 環境變量後即可顯示</small>
             </div>
             <div style="position:absolute; top:10px; right:10px; background:rgba(0,0,0,0.6); color:white; padding:5px 10px; border-radius:5px; font-size:12px;">
                 <span id="cameraStatus">● 連線中</span>
@@ -85,29 +86,72 @@
 let videoFeed = document.getElementById('videoFeed');
 let cameraStatus = document.getElementById('cameraStatus');
 let feedErrorCount = 0;
+let refreshInterval = null;
+let cameraAvailable = false;
+
+function handleVideoError(img) {
+    img.style.display = 'none';
+    const placeholder = document.getElementById('videoPlaceholder');
+    if (placeholder) placeholder.style.display = 'block';
+    if (cameraStatus) {
+        cameraStatus.textContent = '● 攝影機未連接';
+        cameraStatus.style.color = '#dc3545';
+    }
+    // 停止刷新
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+        refreshInterval = null;
+    }
+}
 
 function refreshVideo() {
-    if (videoFeed) {
+    if (videoFeed && videoFeed.style.display !== 'none' && videoFeed.src) {
         const timestamp = new Date().getTime();
         videoFeed.src = '/video_feed.jpg?' + timestamp;
+    }
+}
+
+// 檢查攝影機狀態
+async function checkCamera() {
+    try {
+        const res = await fetch('/api/camera_status');
+        const data = await res.json();
+        cameraAvailable = data.available;
+        
+        if (!cameraAvailable) {
+            handleVideoError(videoFeed);
+            return;
+        }
+        
+        // 相機可用，開始刷新
+        if (cameraStatus) {
+            cameraStatus.textContent = '● 直播中';
+            cameraStatus.style.color = '#28a745';
+        }
+        
+        refreshInterval = setInterval(refreshVideo, 200);
+    } catch (e) {
+        handleVideoError(videoFeed);
     }
 }
 
 if (videoFeed) {
     videoFeed.onload = function() {
         feedErrorCount = 0;
-        cameraStatus.textContent = '● 直播中';
-        cameraStatus.style.color = '#28a745';
+        if (cameraStatus) {
+            cameraStatus.textContent = '● 直播中';
+            cameraStatus.style.color = '#28a745';
+        }
     };
     videoFeed.onerror = function() {
         feedErrorCount++;
-        if (feedErrorCount > 3) {
-            cameraStatus.textContent = '● 攝影機未連接';
-            cameraStatus.style.color = '#dc3545';
+        if (feedErrorCount >= 3) {
+            handleVideoError(videoFeed);
         }
     };
-    // 每 100ms 刷新一次（約10fps）
-    setInterval(refreshVideo, 100);
+    
+    // 啟動時檢查相機狀態
+    checkCamera();
 }
 
 document.getElementById('btnManualOpen')?.addEventListener('click', async () => {

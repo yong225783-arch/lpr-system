@@ -202,6 +202,18 @@ def delete_owner(owner_id):
     conn.commit()
     conn.close()
 
+def delete_record(record_id):
+    conn = get_db()
+    conn.execute('DELETE FROM records WHERE id = ?', (record_id,))
+    conn.commit()
+    conn.close()
+
+def update_record_note(record_id, note):
+    conn = get_db()
+    conn.execute('UPDATE records SET note = ? WHERE id = ?', (note, record_id))
+    conn.commit()
+    conn.close()
+
 # ============ 開門紀錄 ============
 
 def add_record(plate, owner_name, result, image_path=None, note=''):

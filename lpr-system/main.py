@@ -211,10 +211,20 @@ def video_feed_jpg():
     """回傳即時影像 JPG（可用於 img src）"""
     if lpr.camera and lpr.camera.isOpened():
         ret, frame = lpr.camera.read()
-        if ret:
+        if ret and frame is not None:
             _, buffer = cv2.imencode('.jpg', frame)
             return buffer.tobytes(), 200, {'Content-Type': 'image/jpeg'}
     return '', 404
+
+@app.route('/api/camera_status')
+def api_camera_status():
+    """檢查攝影機狀態"""
+    available = lpr.camera is not None and lpr.camera.isOpened()
+    # 嘗試讀取一幀確認
+    if available:
+        ret, frame = lpr.camera.read()
+        available = ret and frame is not None
+    return jsonify({'available': available})
 
 # ============ Web 路由 ============
 
@@ -320,8 +330,33 @@ def records():
         page=page,
         total_pages=total_pages,
         plate_filter=plate_filter,
-        date_filter=date_filter
+        date_filter=date_filter,
+        per_page=per_page
     )
+
+# --- 記錄管理 API ---
+
+@app.route('/api/records/<int:record_id>', methods=['DELETE'])
+def api_delete_record(record_id):
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登入'})
+    conn = db.get_db()
+    conn.execute('DELETE FROM records WHERE id = ?', (record_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+@app.route('/api/records/<int:record_id>', methods=['PUT'])
+def api_update_record(record_id):
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登入'})
+    data = request.json
+    note = data.get('note', '')
+    conn = db.get_db()
+    conn.execute('UPDATE records SET note = ? WHERE id = ?', (note, record_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
 
 # --- 手動開門 ---
 
