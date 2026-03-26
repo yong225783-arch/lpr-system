@@ -545,16 +545,60 @@ def detect_plate_in_image(image_path):
             # 車牌長寬比通常在 2-6 之間
             if 2 < aspect_ratio < 6 and w > 50 and h > 15:
                 plate_regions.append({
-                    'x': int(x), 'y': int(y), 
+                    'x': int(x), 'y': int(y),
                     'width': int(w), 'height': int(h),
                     'confidence': cv2.contourArea(c)
                 })
     
     return plate_regions if plate_regions else None
 
+def ocr_image(image_path):
+    """使用 OCR.space API 辨識圖片中的文字"""
+    try:
+        import requests
+        with open(image_path, 'rb') as f:
+            files = {'file': f}
+            data = {'language': 'eng', 'isOverlayRequired': 'false'}
+            resp = requests.post('https://api.ocr.space/parse/image', 
+                               files=files, data=data, timeout=30)
+        result = resp.json()
+        
+        if result.get('ParsedResults'):
+            texts = []
+            for pr in result['ParsedResults']:
+                texts.append(pr.get('ParsedText', '').strip())
+            return texts
+        return []
+    except Exception as e:
+        logger.error(f'OCR failed: {e}')
+        return []
+
+def extract_plate_number(ocr_texts):
+    """從 OCR 文字中提取引擎號碼格式的內容"""
+    import re
+    # 台灣車牌格式：ABC-1234, ABC-123, 許多用戶的格式
+    plate_patterns = [
+        r'[A-Z]{2,3}-[0-9]{3,4}',  # 標準格式 ABC-1234
+        r'[0-9]{2,3}-[A-Z]{2,3}',  # 數字在前
+        r'[A-Z]{1,2}[0-9]{3,5}',     # 沒有破折號
+        r'[0-9]{4,6}',               # 純數字
+    ]
+    
+    all_text = ' '.join(ocr_texts)
+    all_text = all_text.upper().replace(' ', '').replace('-', '')
+    
+    plates = []
+    for pattern in plate_patterns:
+        matches = re.findall(pattern, all_text)
+        plates.extend(matches)
+    
+    # 去重並格式化
+    unique_plates = list(dict.fromkeys(plates))
+    return unique_plates
+
 @app.route('/api/detect_plate', methods=['POST'])
 def api_detect_plate():
-    """辨識上傳圖片中的車牌（需要EasyOCR）"""
+    """辨識上傳圖片中的車牌"""
     if 'user_id' not in session:
         return jsonify({'success': False, 'message': '未登入'})
     
@@ -574,13 +618,19 @@ def api_detect_plate():
     # 檢測車牌區域
     regions = detect_plate_in_image(filepath)
     
+    # OCR 辨識
+    ocr_texts = ocr_image(filepath)
+    possible_plates = extract_plate_number(ocr_texts)
+    
     result = {
         'success': True,
         'filename': filename,
         'filepath': filepath,
-        'detected': len(regions) > 0 if regions else False,
+        'detected_regions': len(regions) if regions else 0,
         'regions': regions,
-        'message': f'找到 {len(regions) if regions else 0} 個可能車牌區域'
+        'ocr_texts': ocr_texts,
+        'possible_plates': possible_plates,
+        'message': f'找到 {len(regions) if regions else 0} 個車牌區域，OCR 找到 {len(possible_plates)} 個可能車牌'
     }
     
     return jsonify(result)

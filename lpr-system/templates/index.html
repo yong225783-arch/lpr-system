@@ -252,10 +252,10 @@ document.getElementById('upload-form')?.addEventListener('submit', async (e) => 
     const formData = new FormData(e.target);
     const resultDiv = document.getElementById('upload-result');
     
-    resultDiv.innerHTML = '<p style="color:#666;">🔍 辨識中...</p>';
+    resultDiv.innerHTML = '<p style="color:#666;">🔍 辨識中（使用 OCR.cloud）...</p>';
     
     try {
-        // 先偵測車牌區域
+        // 先偵測車牌區域 + OCR
         const detectRes = await fetch('/api/detect_plate', {
             method: 'POST',
             body: formData
@@ -273,8 +273,19 @@ document.getElementById('upload-form')?.addEventListener('submit', async (e) => 
             let html = '<div style="padding:15px; border-radius:8px; background:#d4edda; color:#155724;">';
             html += '<strong>✅ ' + uploadData.message + '</strong>';
             
-            if (detectData.detected) {
-                html += '<br><br>📷 偵測到 ' + detectData.regions.length + ' 個可能車牌區域';
+            // 顯示 OCR 結果
+            if (detectData.possible_plates && detectData.possible_plates.length > 0) {
+                html += '<br><br>📷 <strong>OCR 偵測到的車牌：</strong>';
+                html += '<div style="margin-top:8px;">';
+                detectData.possible_plates.forEach((plate, i) => {
+                    html += `<span style="display:inline-block; background:#fff3cd; padding:5px 10px; border-radius:4px; margin:3px; font-family:monospace; font-weight:bold;">${plate}</span>`;
+                });
+                html += '</div>';
+                html += '<small style="color:#666;">（選擇最像車牌的去白名單比對）</small>';
+            }
+            
+            if (detectData.detected_regions > 0) {
+                html += `<br>🔲 視覺偵測到 ${detectData.detected_regions} 個可能車牌區域`;
             }
             
             if (uploadData.allowed) {
