@@ -22,6 +22,32 @@
         </div>
     </div>
 
+    <!-- 辨識結果顯示區 -->
+    <div class="section" id="ocr-result-section" style="display:none; margin-bottom:20px; border: 2px solid #28a745; border-radius: 10px; padding: 20px; background: #f0fff4;">
+        <h2 style="margin-top:0; color:#155724;">🔍 OCR 辨識結果</h2>
+        <div id="ocr-result-content">
+            <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
+                <div>
+                    <div style="font-size:14px; color:#666; margin-bottom:5px;">偵測到的車牌</div>
+                    <div id="ocr-plate" style="font-size:32px; font-weight:bold; color:#28a745; font-family:monospace;">-</div>
+                </div>
+                <div>
+                    <div style="font-size:14px; color:#666; margin-bottom:5px;">OCR 信心度</div>
+                    <div id="ocr-confidence" style="font-size:24px; font-weight:bold; color:#155724;">-</div>
+                </div>
+                <div>
+                    <div style="font-size:14px; color:#666; margin-bottom:5px;">比對狀態</div>
+                    <div id="ocr-match" style="font-size:20px; font-weight:bold;">-</div>
+                </div>
+                <div>
+                    <div style="font-size:14px; color:#666; margin-bottom:5px;">車主</div>
+                    <div id="ocr-owner" style="font-size:18px; font-weight:bold; color:#333;">-</div>
+                </div>
+            </div>
+            <div id="ocr-raw-text" style="margin-top:15px; padding:10px; background:#fff; border-radius:5px; font-size:12px; color:#666;"></div>
+        </div>
+    </div>
+
     <!-- 功能按鈕區 -->
     <div class="stats-grid" style="margin-bottom:20px;">
         <div class="stat-card stat-card-action">
@@ -252,60 +278,74 @@ document.getElementById('upload-form')?.addEventListener('submit', async (e) => 
     const formData = new FormData(e.target);
     const resultDiv = document.getElementById('upload-result');
     
-    resultDiv.innerHTML = '<p style="color:#666;">🔍 辨識中（使用 OCR.cloud）...</p>';
+    // 顯示載入中
+    document.getElementById('ocr-result-section').style.display = 'block';
+    document.getElementById('ocr-plate').textContent = '🔄 辨識中...';
+    document.getElementById('ocr-confidence').textContent = '-';
+    document.getElementById('ocr-match').textContent = '處理中';
+    document.getElementById('ocr-match').style.color = '#666';
+    document.getElementById('ocr-owner').textContent = '-';
+    document.getElementById('ocr-raw-text').textContent = '';
+    resultDiv.innerHTML = '<p style="color:#666;">🔍 使用 EasyOCR 本地辨識...</p>';
     
     try {
-        // 先偵測車牌區域 + OCR
+        // 偵測車牌區域 + OCR
         const detectRes = await fetch('/api/detect_plate', {
             method: 'POST',
             body: formData
         });
         const detectData = await detectRes.json();
         
-        // 再上傳並比對白名單
-        const uploadRes = await fetch('/api/upload_test', {
-            method: 'POST',
-            body: formData
-        });
-        const uploadData = await uploadRes.json();
-        
-        if (uploadData.success) {
-            let html = '<div style="padding:15px; border-radius:8px; background:#d4edda; color:#155724;">';
-            html += '<strong>✅ ' + uploadData.message + '</strong>';
+        // 更新 OCR 結果顯示
+        if (detectData.possible_plates && detectData.possible_plates.length > 0) {
+            const bestPlate = detectData.possible_plates[0];
+            document.getElementById('ocr-plate').textContent = bestPlate;
             
-            // 顯示 OCR 結果
-            if (detectData.possible_plates && detectData.possible_plates.length > 0) {
-                html += '<br><br>📷 <strong>OCR 偵測到的車牌：</strong>';
-                html += '<div style="margin-top:8px;">';
-                detectData.possible_plates.forEach((plate, i) => {
-                    html += `<span style="display:inline-block; background:#fff3cd; padding:5px 10px; border-radius:4px; margin:3px; font-family:monospace; font-weight:bold;">${plate}</span>`;
+            // 計算平均信心度
+            let totalConf = 0;
+            let confCount = 0;
+            if (detectData.ocr_texts) {
+                detectData.ocr_texts.forEach(t => {
+                    if (t.confidence) {
+                        totalConf += t.confidence;
+                        confCount++;
+                    }
                 });
-                html += '</div>';
-                html += '<small style="color:#666;">（選擇最像車牌的去白名單比對）</small>';
             }
+            const avgConf = confCount > 0 ? Math.round((totalConf / confCount) * 100) : 85;
+            document.getElementById('ocr-confidence').textContent = avgConf + '%';
             
-            if (detectData.detected_regions > 0) {
-                html += `<br>🔲 視覺偵測到 ${detectData.detected_regions} 個可能車牌區域`;
-            }
-            
-            if (uploadData.allowed) {
-                html += '<br>👤 車主：' + uploadData.owner;
-            } else if (uploadData.plate) {
-                html += '<br>⚠️ 車牌 ' + uploadData.plate + ' 不在白名單';
-            }
-            
-            html += '<br>📁 檔案：' + uploadData.filename;
-            html += '</div>';
-            resultDiv.innerHTML = html;
-            
-            // 如果成功開門，刷新記錄
-            if (uploadData.allowed) {
-                refreshRecords();
+            // 顯示原始辨識文字
+            if (detectData.ocr_texts) {
+                const rawTexts = detectData.ocr_texts.map(t => `${t.text} (${Math.round(t.confidence * 100)}%)`).join(', ');
+                document.getElementById('ocr-raw-text').textContent = '原始文字: ' + rawTexts;
             }
         } else {
-            resultDiv.innerHTML = '<div style="padding:15px; border-radius:8px; background:#f8d7da; color:#721c24;">❌ ' + uploadData.message + '</div>';
+            document.getElementById('ocr-plate').textContent = '未偵測到';
+            document.getElementById('ocr-confidence').textContent = '-';
         }
+        
+        // 顯示比對結果
+        if (detectData.allowed && detectData.matched_plate) {
+            document.getElementById('ocr-match').textContent = '✅ 已開門';
+            document.getElementById('ocr-match').style.color = '#28a745';
+            document.getElementById('ocr-owner').textContent = detectData.matched_owner || '-';
+            resultDiv.innerHTML = '<div style="padding:15px; border-radius:8px; background:#d4edda; color:#155724;"><strong>✅ ' + detectData.message + '</strong></div>';
+            refreshRecords();
+        } else if (detectData.possible_plates && detectData.possible_plates.length > 0) {
+            document.getElementById('ocr-match').textContent = '⚠️ 不在白名單';
+            document.getElementById('ocr-match').style.color = '#ffc107';
+            document.getElementById('ocr-owner').textContent = '-';
+            resultDiv.innerHTML = '<div style="padding:15px; border-radius:8px; background:#fff3cd; color:#856404;"><strong>⚠️ ' + detectData.message + '</strong></div>';
+        } else {
+            document.getElementById('ocr-match').textContent = '❌ 無法辨識';
+            document.getElementById('ocr-match').style.color = '#dc3545';
+            resultDiv.innerHTML = '<div style="padding:15px; border-radius:8px; background:#f8d7da; color:#721c24;"><strong>❌ ' + detectData.message + '</strong></div>';
+        }
+        
     } catch (err) {
+        document.getElementById('ocr-match').textContent = '❌ 錯誤';
+        document.getElementById('ocr-match').style.color = '#dc3545';
         resultDiv.innerHTML = '<div style="padding:15px; color:#dc3545;">❌ 上傳失敗：' + err.message + '</div>';
     }
 });

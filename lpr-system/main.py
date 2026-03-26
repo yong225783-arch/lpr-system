@@ -564,15 +564,18 @@ def get_easyocr_reader():
     return _easyocr_reader
 
 def ocr_image(image_path):
-    """使用 EasyOCR 辨識圖片中的文字"""
+    """使用 EasyOCR 辨識圖片中的文字，回傳包含信心度的結果"""
     try:
         reader = get_easyocr_reader()
         results = reader.readtext(image_path)
         
         texts = []
         for bbox, text, confidence in results:
-            if confidence > 0.3:  # 只取信心度 > 30% 的結果
-                texts.append(text.strip())
+            if confidence > 0.2:  # 只取信心度 > 20% 的結果
+                texts.append({
+                    'text': text.strip(),
+                    'confidence': round(confidence, 2)
+                })
         
         return texts
     except Exception as e:
@@ -590,7 +593,12 @@ def extract_plate_number(ocr_texts):
         r'[0-9]{4,6}',               # 純數字
     ]
     
-    all_text = ' '.join(ocr_texts)
+    # 處理可能是 dict 格式的 ocr_texts
+    if ocr_texts and isinstance(ocr_texts[0], dict):
+        all_text = ' '.join([t['text'] for t in ocr_texts])
+    else:
+        all_text = ' '.join(ocr_texts)
+    
     all_text = all_text.upper().replace(' ', '').replace('-', '')
     
     plates = []
