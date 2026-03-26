@@ -1,0 +1,408 @@
+{% extends "base.html" %}
+
+{% block title %}計費管理 - LPR 系統{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>💰 計費管理</h1>
+
+    <!-- 統計卡片 -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">今日收入</div>
+            <div class="stat-value" id="today-income">載入中...</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">待繳費</div>
+            <div class="stat-value" id="unpaid-count">載入中...</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">本月收入</div>
+            <div class="stat-value" id="month-income">載入中...</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">總交易筆數</div>
+            <div class="stat-value" id="total-count">載入中...</div>
+        </div>
+    </div>
+
+    <!-- 搜尋和篩選 -->
+    <div class="filter-bar">
+        <input type="text" id="plate-search" placeholder="搜尋車牌..." onkeyup="filterBilling()">
+        <select id="status-filter" onchange="filterBilling()">
+            <option value="">全部狀態</option>
+            <option value="unpaid">待繳費</option>
+            <option value="paid">已繳費</option>
+        </select>
+        <input type="date" id="date-filter" onchange="filterBilling()">
+        <button class="btn btn-secondary" onclick="filterBilling()">篩選</button>
+    </div>
+
+    <!-- 收費規則設定 -->
+    <div class="section">
+        <h2>📋 收費規則</h2>
+        <button class="btn btn-primary" onclick="showAddRuleModal()">新增規則</button>
+        <table class="data-table" id="rules-table">
+            <thead>
+                <tr>
+                    <th>名稱</th>
+                    <th>車型</th>
+                    <th>免費分鐘</th>
+                    <th>基本費</th>
+                    <th>每小時</th>
+                    <th>每日上限</th>
+                    <th>狀態</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="rules-tbody">
+                <tr><td colspan="8" class="text-center">載入中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 帳單列表 -->
+    <div class="section">
+        <h2>📜 帳單列表</h2>
+        <table class="data-table" id="billing-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>車牌</th>
+                    <th>車主</th>
+                    <th>停車時長</th>
+                    <th>金額</th>
+                    <th>進場時間</th>
+                    <th>離場時間</th>
+                    <th>狀態</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="billing-tbody">
+                <tr><td colspan="9" class="text-center">載入中...</td></tr>
+            </tbody>
+        </table>
+        <div class="pagination" id="billing-pagination"></div>
+    </div>
+</div>
+
+<!-- 新增/編輯規則 Modal -->
+<div class="modal" id="rule-modal">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeModal('rule-modal')">&times;</span>
+        <h2 id="rule-modal-title">新增收費規則</h2>
+        <form id="rule-form">
+            <input type="hidden" id="rule-id">
+            <div class="form-group">
+                <label>規則名稱</label>
+                <input type="text" id="rule-name" required>
+            </div>
+            <div class="form-group">
+                <label>適用車型</label>
+                <select id="rule-car-type">
+                    <option value="all">全部</option>
+                    <option value="轎車">轎車</option>
+                    <option value="休旅車">休旅車</option>
+                    <option value="機車">機車</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>免費分鐘數</label>
+                <input type="number" id="rule-base-minutes" value="15" min="0">
+            </div>
+            <div class="form-group">
+                <label>基本費（分）</label>
+                <input type="number" id="rule-base-fee" value="0" min="0">
+            </div>
+            <div class="form-group">
+                <label>每小時費用（分）</label>
+                <input type="number" id="rule-hourly-fee" value="30" min="0">
+            </div>
+            <div class="form-group">
+                <label>每日上限（分，0=無上限）</label>
+                <input type="number" id="rule-daily-max" value="500" min="0">
+            </div>
+            <div class="form-group">
+                <label>啟用</label>
+                <input type="checkbox" id="rule-is-active" checked>
+            </div>
+            <button type="submit" class="btn btn-primary">儲存</button>
+        </form>
+    </div>
+</div>
+
+<style>
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.stat-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 20px;
+    border-radius: 10px;
+    color: white;
+    text-align: center;
+}
+
+.stat-card.warning {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+.stat-card.success {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+
+.stat-card.info {
+    background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+}
+
+.stat-label {
+    font-size: 14px;
+    opacity: 0.9;
+    margin-bottom: 10px;
+}
+
+.stat-value {
+    font-size: 28px;
+    font-weight: bold;
+}
+
+.section {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.filter-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.filter-bar input, .filter-bar select {
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+.data-table th, .data-table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+.data-table th {
+    background: #f5f5f5;
+    font-weight: 600;
+}
+
+.status-badge {
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.status-badge.paid {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-badge.unpaid {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.status-badge.active {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-badge.disabled {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.text-center {
+    text-align: center;
+}
+</style>
+
+<script>
+// 載入統計
+function loadBillingStats() {
+    fetch('/api/billing/stats')
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('today-income').textContent = 'NT$ ' + data.today_income;
+            document.getElementById('unpaid-count').textContent = data.unpaid_count + ' 筆';
+            document.getElementById('month-income').textContent = 'NT$ ' + data.month_income;
+            document.getElementById('total-count').textContent = data.total_count + ' 筆';
+        });
+}
+
+// 載入收費規則
+function loadBillingRules() {
+    fetch('/api/billing/rules')
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('rules-tbody');
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center">尚無規則</td></tr>';
+                return;
+            }
+            tbody.innerHTML = data.map(rule => `
+                <tr>
+                    <td>${rule.name}</td>
+                    <td>${rule.car_type === 'all' ? '全部' : rule.car_type}</td>
+                    <td>${rule.base_minutes} 分</td>
+                    <td>NT$ ${rule.base_fee}</td>
+                    <td>NT$ ${rule.hourly_fee}/小時</td>
+                    <td>${rule.daily_max > 0 ? 'NT$ ' + rule.daily_max : '無上限'}</td>
+                    <td><span class="status-badge ${rule.is_active ? 'active' : 'disabled'}">${rule.is_active ? '啟用' : '停用'}</span></td>
+                    <td>
+                        <button class="btn-small" onclick="editRule(${rule.id})">編輯</button>
+                        <button class="btn-small btn-danger" onclick="deleteRule(${rule.id})">刪除</button>
+                    </td>
+                </tr>
+            `).join('');
+        });
+}
+
+// 載入帳單列表
+function loadBillingList(page = 1) {
+    const plate = document.getElementById('plate-search').value;
+    const status = document.getElementById('status-filter').value;
+    const date = document.getElementById('date-filter').value;
+    
+    fetch(`/api/billing/list?page=${page}&plate=${plate}&status=${status}&date=${date}`)
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('billing-tbody');
+            if (data.items.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" class="text-center">尚無資料</td></tr>';
+                return;
+            }
+            tbody.innerHTML = data.items.map(b => `
+                <tr>
+                    <td>${b.id}</td>
+                    <td><strong>${b.plate}</strong></td>
+                    <td>${b.owner_name || '-'}</td>
+                    <td>${b.duration_minutes} 分</td>
+                    <td><strong style="color:#e74c3c">NT$ ${b.amount}</strong></td>
+                    <td>${b.entry_time || '-'}</td>
+                    <td>${b.exit_time || '-'}</td>
+                    <td><span class="status-badge ${b.payment_status}">${b.payment_status === 'paid' ? '已繳費' : '待繳費'}</span></td>
+                    <td>
+                        ${b.payment_status === 'unpaid' ? `<button class="btn-small btn-success" onclick="markPaid(${b.id})">設為已繳</button>` : ''}
+                    </td>
+                </tr>
+            `).join('');
+            
+            // 分頁
+            renderPagination(data.total, data.page, data.per_page);
+        });
+}
+
+function renderPagination(total, current, per_page) {
+    const total_pages = Math.ceil(total / per_page);
+    const container = document.getElementById('billing-pagination');
+    if (total_pages <= 1) {
+        container.innerHTML = '';
+        return;
+    }
+    let html = '';
+    for (let i = 1; i <= total_pages; i++) {
+        html += `<button class="btn-small ${i === current ? 'btn-primary' : ''}" onclick="loadBillingList(${i})">${i}</button> `;
+    }
+    container.innerHTML = html;
+}
+
+function filterBilling() {
+    loadBillingList(1);
+}
+
+function showAddRuleModal() {
+    document.getElementById('rule-modal-title').textContent = '新增收費規則';
+    document.getElementById('rule-form').reset();
+    document.getElementById('rule-id').value = '';
+    document.getElementById('rule-modal').style.display = 'flex';
+}
+
+function editRule(id) {
+    fetch(`/api/billing/rules/${id}`)
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('rule-modal-title').textContent = '編輯收費規則';
+            document.getElementById('rule-id').value = data.id;
+            document.getElementById('rule-name').value = data.name;
+            document.getElementById('rule-car-type').value = data.car_type;
+            document.getElementById('rule-base-minutes').value = data.base_minutes;
+            document.getElementById('rule-base-fee').value = data.base_fee;
+            document.getElementById('rule-hourly-fee').value = data.hourly_fee;
+            document.getElementById('rule-daily-max').value = data.daily_max || 0;
+            document.getElementById('rule-is-active').checked = data.is_active == 1;
+            document.getElementById('rule-modal').style.display = 'flex';
+        });
+}
+
+function deleteRule(id) {
+    if (!confirm('確定要刪除此規則？')) return;
+    fetch(`/api/billing/rules/${id}`, { method: 'DELETE' })
+        .then(() => { loadBillingRules(); loadBillingStats(); });
+}
+
+function markPaid(id) {
+    fetch(`/api/billing/${id}/paid`, { method: 'POST' })
+        .then(() => { loadBillingList(); loadBillingStats(); });
+}
+
+document.getElementById('rule-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const id = document.getElementById('rule-id').value;
+    const data = {
+        name: document.getElementById('rule-name').value,
+        car_type: document.getElementById('rule-car-type').value,
+        base_minutes: parseInt(document.getElementById('rule-base-minutes').value),
+        base_fee: parseInt(document.getElementById('rule-base-fee').value),
+        hourly_fee: parseInt(document.getElementById('rule-hourly-fee').value),
+        daily_max: parseInt(document.getElementById('rule-daily-max').value),
+        is_active: document.getElementById('rule-is-active').checked ? 1 : 0
+    };
+    
+    const method = id ? 'PUT' : 'POST';
+    const url = id ? `/api/billing/rules/${id}` : '/api/billing/rules';
+    
+    fetch(url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    }).then(() => {
+        closeModal('rule-modal');
+        loadBillingRules();
+        loadBillingStats();
+    });
+});
+
+function closeModal(id) {
+    document.getElementById(id).style.display = 'none';
+}
+
+// 初始化
+loadBillingStats();
+loadBillingRules();
+loadBillingList();
+</script>
+{% endblock %}

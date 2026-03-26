@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "skills": {
+    "web-browsing": {
+      "version": "1.0.0",
+      "installedAt": 1774525561753
+    },
+    "gog": {
+      "version": "1.0.0",
+      "installedAt": 1774527061297
+    },
+    "notion": {
+      "version": "1.0.0",
+      "installedAt": 1774525562046
+    },
+    "docker": {
+      "version": "1.0.4",
+      "installedAt": 1774525562077
+    },
+    "context7": {
+      "version": "1.0.3",
+      "installedAt": 1774525562454
+    },
+    "skill-vetter": {
+      "version": "1.0.0",
+      "installedAt": 1774525681343
+    },
+    "searxng": {
+      "version": "1.0.3",
+      "installedAt": 1774525681859
+    },
+    "openclaw-tavily-search": {
+      "version": "0.1.0",
+      "installedAt": 1774525812146
+    },
+    "lancedb-memory": {
+      "version": "1.0.0",
+      "installedAt": 1774526042000
+    },
+    "secureclaw-skill": {
+      "version": "2.2.0",
+      "installedAt": 1774526224508
+    },
+    "agent-browser-core": {
+      "version": "1.0.1",
+      "installedAt": 1774526295802
+    },
+    "self-improving-agent": {
+      "version": "3.0.6",
+      "installedAt": 1774526762343
+    },
+    "summarize": {
+      "version": "1.0.0",
+      "installedAt": 1774527181436
+    },
+    "github-ops": {
+      "version": "1.0.0",
+      "installedAt": 1774527361906
+    },
+    "ontology": {
+      "version": "1.0.4",
+      "installedAt": 1774527661986
+    },
+    "proactive-agent-lite": {
+      "version": "1.0.0",
+      "installedAt": 1774527782209
+    },
+    "find-skills-skill": {
+      "version": "1.0.0",
+      "installedAt": 1774528082130
+    },
+    "weather": {
+      "version": "1.0.0",
+      "installedAt": 1774528144280
+    }
+  }
+}

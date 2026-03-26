@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}車主管理 - 車牌辨識系統{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>👥 車主管理</h1>
+    <button class="btn-primary" onclick="showAddModal()">+ 新增車主</button>
+</div>
+
+<div class="table-responsive">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>姓名</th>
+                <th>電話</th>
+                <th>車牌</th>
+                <th>備註</th>
+                <th>狀態</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for o in owners %}
+            <tr class="{% if o.is_blacklist %}row-danger{% endif %}">
+                <td>{{ o.id }}</td>
+                <td>{{ o.name }}</td>
+                <td>{{ o.phone or '-' }}</td>
+                <td><strong>{{ o.plate }}</strong></td>
+                <td>{{ o.note or '' }}</td>
+                <td>
+                    <span class="badge badge-{% if o.is_blacklist %}danger{% else %}success{% endif %}">
+                        {% if o.is_blacklist %}黑名單{% else %}正常{% endif %}
+                    </span>
+                </td>
+                <td>
+                    <button class="btn-sm btn-edit" onclick="editOwner({{ o }})">編輯</button>
+                    <form method="POST" action="{{ url_for('owners_delete', owner_id=o.id) }}" style="display:inline" onsubmit="return confirm('確定要刪除嗎？')">
+                        <button type="submit" class="btn-sm btn-danger">刪除</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- 新增/編輯 Modal -->
+<div id="ownerModal" class="modal" style="display:none">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="modalTitle">新增車主</h2>
+            <span class="modal-close" onclick="closeModal()">&times;</span>
+        </div>
+        <form id="ownerForm" method="POST">
+            <input type="hidden" name="id" id="ownerId">
+            <div class="form-group">
+                <label>姓名 *</label>
+                <input type="text" name="name" id="ownerName" required>
+            </div>
+            <div class="form-group">
+                <label>電話</label>
+                <input type="text" name="phone" id="ownerPhone">
+            </div>
+            <div class="form-group">
+                <label>車牌 *</label>
+                <input type="text" name="plate" id="ownerPlate" required style="text-transform:uppercase">
+            </div>
+            <div class="form-group">
+                <label>備註</label>
+                <textarea name="note" id="ownerNote" rows="2"></textarea>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="is_blacklist" id="ownerBlacklist"> 加入黑名單
+                </label>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" onclick="closeModal()">取消</button>
+                <button type="submit" class="btn-primary">儲存</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showAddModal() {
+    document.getElementById('modalTitle').textContent = '新增車主';
+    document.getElementById('ownerForm').action = '/owners/add';
+    document.getElementById('ownerId').value = '';
+    document.getElementById('ownerName').value = '';
+    document.getElementById('ownerPhone').value = '';
+    document.getElementById('ownerPlate').value = '';
+    document.getElementById('ownerNote').value = '';
+    document.getElementById('ownerBlacklist').checked = false;
+    document.getElementById('ownerModal').style.display = 'block';
+}
+
+function editOwner(o) {
+    document.getElementById('modalTitle').textContent = '編輯車主';
+    document.getElementById('ownerForm').action = '/owners/edit/' + o.id;
+    document.getElementById('ownerId').value = o.id;
+    document.getElementById('ownerName').value = o.name;
+    document.getElementById('ownerPhone').value = o.phone || '';
+    document.getElementById('ownerPlate').value = o.plate;
+    document.getElementById('ownerNote').value = o.note || '';
+    document.getElementById('ownerBlacklist').checked = o.is_blacklist == 1;
+    document.getElementById('ownerModal').style.display = 'block';
+}
+
+function closeModal() {
+    document.getElementById('ownerModal').style.display = 'none';
+}
+
+window.onclick = function(e) {
+    if (e.target.classList.contains('modal')) {
+        closeModal();
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,503 @@
+{% extends "base.html" %}
+
+{% block title %}車位管理 - LPR 系統{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>🅿️ 車位管理</h1>
+
+    <!-- 車位概覽 -->
+    <div class="stats-grid">
+        <div class="stat-card success">
+            <div class="stat-label">可用車位</div>
+            <div class="stat-value" id="available-count">-</div>
+        </div>
+        <div class="stat-card warning">
+            <div class="stat-label">已占用</div>
+            <div class="stat-value" id="occupied-count">-</div>
+        </div>
+        <div class="stat-card info">
+            <div class="stat-label">預訂中</div>
+            <div class="stat-value" id="reserved-count">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">總車位</div>
+            <div class="stat-value" id="total-count">-</div>
+        </div>
+    </div>
+
+    <!-- 目前停車中 -->
+    <div class="section">
+        <h2>🚗 目前停車中</h2>
+        <table class="data-table" id="active-sessions-table">
+            <thead>
+                <tr>
+                    <th>車牌</th>
+                    <th>車主</th>
+                    <th>車位</th>
+                    <th>進場時間</th>
+                    <th>已停時間</th>
+                    <th>費用</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="active-sessions-tbody">
+                <tr><td colspan="7" class="text-center">載入中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 車位列表 -->
+    <div class="section">
+        <div class="section-header">
+            <h2>📋 車位列表</h2>
+            <button class="btn btn-primary" onclick="showAddSlotModal()">新增車位</button>
+        </div>
+        
+        <!-- 篩選 -->
+        <div class="filter-bar">
+            <select id="slot-status-filter" onchange="filterSlots()">
+                <option value="">全部狀態</option>
+                <option value="available">可用</option>
+                <option value="occupied">已占用</option>
+                <option value="reserved">預訂中</option>
+                <option value="disabled">停用</option>
+            </select>
+            <button class="btn btn-secondary" onclick="initSlots()">重置</button>
+        </div>
+        
+        <div class="slots-grid" id="slots-grid">
+            <!-- 動態生成車位卡片 -->
+        </div>
+    </div>
+
+    <!-- 住戶車位對應 -->
+    <div class="section">
+        <h2>👤 住戶車位對應</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>車牌</th>
+                    <th>車主</th>
+                    <th>電話</th>
+                    <th>車位</th>
+                    <th>車型</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="owner-slots-tbody">
+                <tr><td colspan="6" class="text-center">載入中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 新增車位 Modal -->
+<div class="modal" id="slot-modal">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeModal('slot-modal')">&times;</span>
+        <h2 id="slot-modal-title">新增車位</h2>
+        <form id="slot-form">
+            <div class="form-group">
+                <label>車位編號</label>
+                <input type="text" id="slot-number" placeholder="例如：A1" required>
+            </div>
+            <button type="submit" class="btn btn-primary">儲存</button>
+        </form>
+    </div>
+</div>
+
+<!-- 手動進場 Modal -->
+<div class="modal" id="entry-modal">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeModal('entry-modal')">&times;</span>
+        <h2>🚗 手動進場</h2>
+        <form id="entry-form">
+            <div class="form-group">
+                <label>車牌號碼</label>
+                <input type="text" id="entry-plate" placeholder="例如：ABC-1234" required>
+            </div>
+            <div class="form-group">
+                <label>車位（選填）</label>
+                <select id="entry-slot">
+                    <option value="">不指定</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">確認進場</button>
+        </form>
+    </div>
+</div>
+
+<!-- 手動離場 Modal -->
+<div class="modal" id="exit-modal">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeModal('exit-modal')">&times;</span>
+        <h2>🚙 手動離場</h2>
+        <form id="exit-form">
+            <div class="form-group">
+                <label>車牌號碼</label>
+                <input type="text" id="exit-plate" placeholder="例如：ABC-1234" required>
+            </div>
+            <div id="exit-fee-info" style="display:none; background:#f8f9fa; padding:15px; border-radius:5px; margin-bottom:15px;">
+                <p>停車時長：<strong id="exit-duration"></strong></p>
+                <p>費用：<strong style="color:#e74c3c; font-size:20px;">NT$ <span id="exit-fee"></span></strong></p>
+            </div>
+            <button type="submit" class="btn btn-primary">確認離場</button>
+        </form>
+    </div>
+</div>
+
+<style>
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.stat-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 20px;
+    border-radius: 10px;
+    color: white;
+    text-align: center;
+}
+
+.stat-card.success { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
+.stat-card.warning { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+.stat-card.info { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+
+.stat-label { font-size: 14px; opacity: 0.9; margin-bottom: 10px; }
+.stat-value { font-size: 32px; font-weight: bold; }
+
+.section {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.slots-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.slot-card {
+    aspect-ratio: 1;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    font-weight: bold;
+}
+
+.slot-card:hover {
+    transform: scale(1.05);
+    box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+}
+
+.slot-card.available {
+    background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+    color: #155724;
+    border: 3px solid #28a745;
+}
+
+.slot-card.occupied {
+    background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+    color: #721c24;
+    border: 3px solid #dc3545;
+}
+
+.slot-card.reserved {
+    background: linear-gradient(135deg, #fff3cd 0%, #ffeeba 100%);
+    color: #856404;
+    border: 3px solid #ffc107;
+}
+
+.slot-card.disabled {
+    background: #e9ecef;
+    color: #6c757d;
+    border: 3px solid #adb5bd;
+}
+
+.slot-number { font-size: 24px; margin-bottom: 5px; }
+.slot-plate { font-size: 11px; opacity: 0.8; }
+
+.data-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+.data-table th, .data-table td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
+.data-table th { background: #f5f5f5; font-weight: 600; }
+
+.filter-bar { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+.filter-bar select, .filter-bar input { padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
+
+.status-badge {
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.text-center { text-align: center; }
+
+.btn-small { padding: 5px 10px; font-size: 12px; border: none; border-radius: 4px; cursor: pointer; }
+.btn-small.btn-primary { background: #007bff; color: white; }
+.btn-small.btn-success { background: #28a745; color: white; }
+.btn-small.btn-danger { background: #dc3545; color: white; }
+</style>
+
+<script>
+// 載入車位統計
+function loadSlotStats() {
+    fetch('/api/parking/slots/stats')
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('available-count').textContent = data.available;
+            document.getElementById('occupied-count').textContent = data.occupied;
+            document.getElementById('reserved-count').textContent = data.reserved;
+            document.getElementById('total-count').textContent = data.total;
+        });
+}
+
+// 載入車位列表
+function loadSlots() {
+    fetch('/api/parking/slots')
+        .then(r => r.json())
+        .then(data => {
+            const grid = document.getElementById('slots-grid');
+            grid.innerHTML = data.map(slot => `
+                <div class="slot-card ${slot.status}" onclick="showSlotActions(${slot.id}, '${slot.slot_number}', '${slot.status}')">
+                    <div class="slot-number">${slot.slot_number}</div>
+                    <div class="slot-plate">${slot.plate || (slot.status === 'available' ? '空位' : '')}</div>
+                </div>
+            `).join('');
+        });
+}
+
+// 載入目前停車中的 session
+function loadActiveSessions() {
+    fetch('/api/parking/sessions/active')
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('active-sessions-tbody');
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center">目前沒有停車中的車輛</td></tr>';
+                return;
+            }
+            tbody.innerHTML = data.map(s => `
+                <tr>
+                    <td><strong>${s.plate}</strong></td>
+                    <td>${s.owner_name || '-'}</td>
+                    <td>${s.slot_number || '-'}</td>
+                    <td>${s.entry_time}</td>
+                    <td>${s.duration || '計算中...'}</td>
+                    <td><strong style="color:#e74c3c">NT$ ${s.fee || 0}</strong></td>
+                    <td>
+                        <button class="btn-small btn-success" onclick="showExitModal('${s.plate}')">離場</button>
+                    </td>
+                </tr>
+            `).join('');
+        });
+}
+
+// 載入住戶車位對應
+function loadOwnerSlots() {
+    fetch('/api/owners')
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('owner-slots-tbody');
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center">尚無資料</td></tr>';
+                return;
+            }
+            tbody.innerHTML = data.map(o => `
+                <tr>
+                    <td><strong>${o.plate}</strong></td>
+                    <td>${o.name}</td>
+                    <td>${o.phone || '-'}</td>
+                    <td>${o.slot_number || '<span style="color:#999">未分配</span>'}</td>
+                    <td>${o.car_type || '-'}</td>
+                    <td>
+                        <button class="btn-small" onclick="assignSlot(${o.id})">分配車位</button>
+                    </td>
+                </tr>
+            `).join('');
+        });
+}
+
+function filterSlots() {
+    const status = document.getElementById('slot-status-filter').value;
+    fetch('/api/parking/slots')
+        .then(r => r.json())
+        .then(data => {
+            const filtered = status ? data.filter(s => s.status === status) : data;
+            const grid = document.getElementById('slots-grid');
+            grid.innerHTML = filtered.map(slot => `
+                <div class="slot-card ${slot.status}" onclick="showSlotActions(${slot.id}, '${slot.slot_number}', '${slot.status}')">
+                    <div class="slot-number">${slot.slot_number}</div>
+                    <div class="slot-plate">${slot.plate || (slot.status === 'available' ? '空位' : '')}</div>
+                </div>
+            `).join('');
+        });
+}
+
+function initSlots() {
+    document.getElementById('slot-status-filter').value = '';
+    loadSlots();
+}
+
+function showAddSlotModal() {
+    document.getElementById('slot-form').reset();
+    document.getElementById('slot-modal-title').textContent = '新增車位';
+    document.getElementById('slot-modal').style.display = 'flex';
+}
+
+function showSlotActions(slotId, slotNumber, status) {
+    let actions = '';
+    if (status === 'available') {
+        actions = `
+            <button class="btn-small btn-primary" onclick="doEntry('${slotNumber}')">進場</button>
+            <button class="btn-small btn-danger" onclick="deleteSlot(${slotId})">刪除</button>
+        `;
+    } else if (status === 'occupied') {
+        actions = `<button class="btn-small btn-success" onclick="doExit('${slotNumber}')">離場</button>`;
+    } else {
+        actions = `<button class="btn-small btn-danger" onclick="deleteSlot(${slotId})">刪除</button>`;
+    }
+    
+    const card = event.currentTarget;
+    card.innerHTML = `
+        <div class="slot-number">${slotNumber}</div>
+        <div style="display:flex; gap:5px; margin-top:10px;">
+            ${actions}
+        </div>
+    `;
+    
+    setTimeout(() => loadSlots(), 3000);
+}
+
+function addSlot() {
+    const number = document.getElementById('slot-number').value;
+    fetch('/api/parking/slots', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slot_number: number })
+    }).then(() => {
+        closeModal('slot-modal');
+        loadSlots();
+        loadSlotStats();
+    });
+}
+
+function deleteSlot(id) {
+    if (!confirm('確定要刪除此車位？')) return;
+    fetch(`/api/parking/slots/${id}`, { method: 'DELETE' })
+        .then(() => { loadSlots(); loadSlotStats(); });
+}
+
+function doEntry(slotNumber) {
+    const plate = prompt('請輸入車牌號碼：');
+    if (!plate) return;
+    
+    fetch('/api/parking/entry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plate: plate, slot_number: slotNumber })
+    }).then(r => r.json()).then(data => {
+        alert(data.message);
+        loadSlots();
+        loadSlotStats();
+        loadActiveSessions();
+    });
+}
+
+function doExit(slotNumber) {
+    fetch('/api/parking/exit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slot_number: slotNumber })
+    }).then(r => r.json()).then(data => {
+        if (data.error) {
+            alert(data.error);
+        } else {
+            alert(`離場成功！費用：NT$ ${data.fee}`);
+            loadSlots();
+            loadSlotStats();
+            loadActiveSessions();
+        }
+    });
+}
+
+function showExitModal(plate) {
+    document.getElementById('exit-plate').value = plate;
+    document.getElementById('exit-fee-info').style.display = 'none';
+    document.getElementById('exit-modal').style.display = 'flex';
+}
+
+document.getElementById('exit-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const plate = document.getElementById('exit-plate').value;
+    
+    fetch('/api/parking/exit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plate: plate })
+    }).then(r => r.json()).then(data => {
+        if (data.error) {
+            alert(data.error);
+        } else {
+            alert(`離場成功！停車 ${data.duration} 分鐘，費用：NT$ ${data.fee}`);
+            closeModal('exit-modal');
+            loadSlots();
+            loadSlotStats();
+            loadActiveSessions();
+        }
+    });
+});
+
+function assignSlot(ownerId) {
+    const slot = prompt('請輸入要分配的車位編號：');
+    if (!slot) return;
+    
+    fetch(`/api/owners/${ownerId}/assign-slot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slot_number: slot })
+    }).then(r => r.json()).then(data => {
+        alert(data.message);
+        loadOwnerSlots();
+        loadSlots();
+    });
+}
+
+function closeModal(id) {
+    document.getElementById(id).style.display = 'none';
+}
+
+document.getElementById('slot-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    addSlot();
+});
+
+// 初始化
+loadSlotStats();
+loadSlots();
+loadActiveSessions();
+loadOwnerSlots();
+
+// 每30秒更新一次停車中的資料
+setInterval(loadActiveSessions, 30000);
+</script>
+{% endblock %}

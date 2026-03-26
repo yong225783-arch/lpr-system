@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}開門紀錄 - 車牌辨識系統{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>📋 開門紀錄</h1>
+</div>
+
+<div class="filter-bar">
+    <form method="GET" class="filter-form">
+        <input type="text" name="plate" placeholder="搜尋車牌..." value="{{ plate_filter }}">
+        <input type="date" name="date" value="{{ date_filter }}">
+        <button type="submit" class="btn-primary">篩選</button>
+        <a href="{{ url_for('records') }}" class="btn-secondary">清除</a>
+    </form>
+</div>
+
+<div class="table-responsive">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>時間</th>
+                <th>車牌</th>
+                <th>車主</th>
+                <th>結果</th>
+                <th>備註</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in records %}
+            <tr class="{% if r.result == '已授權' %}row-success{% elif r.result == '未授權' %}row-danger{% endif %}">
+                <td>{{ r.id }}</td>
+                <td>{{ r.created_at }}</td>
+                <td><strong>{{ r.plate }}</strong></td>
+                <td>{{ r.owner_name or '-' }}</td>
+                <td>
+                    <span class="badge badge-{% if r.result == '已授權' %}success{% elif r.result == '未授權' %}danger{% else %}info{% endif %}">
+                        {{ r.result }}
+                    </span>
+                </td>
+                <td>{{ r.note or '' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="?page={{ page-1 }}&plate={{ plate_filter }}&date={{ date_filter }}" class="btn-secondary">上一頁</a>
+    {% endif %}
+    <span class="page-info">第 {{ page }} / {{ total_pages }} 頁</span>
+    {% if page < total_pages %}
+    <a href="?page={{ page+1 }}&plate={{ plate_filter }}&date={{ date_filter }}" class="btn-secondary">下一頁</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}
