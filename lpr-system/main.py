@@ -839,6 +839,14 @@ def api_detect_plate():
     if all_ocr_texts and isinstance(all_ocr_texts[0], dict):
         avg_conf = sum([t['confidence'] for t in all_ocr_texts]) / len(all_ocr_texts) * 100
     
+    # 安全處理 ocr_texts
+    if all_ocr_texts and isinstance(all_ocr_texts[0], dict):
+        safe_ocr_texts = all_ocr_texts
+    elif all_ocr_texts:
+        safe_ocr_texts = [{'text': t, 'confidence': 0.5} for t in all_ocr_texts]
+    else:
+        safe_ocr_texts = []
+    
     result = {
         'success': True,
         'filename': filename,
@@ -855,7 +863,7 @@ def api_detect_plate():
         'all_plates': all_possible_plates,
         'best_plate': matched_plate or (combined_plates[0] if combined_plates else None),
         'ocr_confidence': round(avg_conf),
-        'ocr_texts': all_ocr_texts if isinstance(all_ocr_texts[0], dict) else [{'text': t, 'confidence': 0.5} for t in all_ocr_texts],
+        'ocr_texts': safe_ocr_texts,
         'matched_plate': matched_owner['plate'] if matched_owner else None,
         'matched_owner': matched_owner['name'] if matched_owner else None,
         'allowed': matched_owner is not None,
