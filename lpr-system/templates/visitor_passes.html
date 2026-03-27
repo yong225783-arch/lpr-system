@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}訪客通行證 - 車牌辨識系統{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>👥 訪客通行證管理</h1>
+
+    <!-- 新增通行證表單 -->
+    <div class="section" style="background:#f8f9fa; padding:20px; border-radius:10px; margin-bottom:20px;">
+        <h2 style="margin-top:0;">➕ 新增訪客通行證</h2>
+        <form id="pass-form" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:15px; align-items:end;">
+            <div class="form-group">
+                <label>車牌 *</label>
+                <input type="text" id="pass-plate" placeholder="例如：ABC-1234" required style="text-transform:uppercase;">
+            </div>
+            <div class="form-group">
+                <label>訪客姓名</label>
+                <input type="text" id="pass-name" placeholder="訪客姓名">
+            </div>
+            <div class="form-group">
+                <label>電話</label>
+                <input type="text" id="pass-phone" placeholder="聯絡電話">
+            </div>
+            <div class="form-group">
+                <label>有效時間（小時）</label>
+                <select id="pass-hours">
+                    <option value="1">1 小時</option>
+                    <option value="2">2 小時</option>
+                    <option value="4">4 小時</option>
+                    <option value="8">8 小時</option>
+                    <option value="12">12 小時</option>
+                    <option value="24" selected>24 小時</option>
+                    <option value="48">48 小時</option>
+                    <option value="72">72 小時（3天）</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>備註</label>
+                <input type="text" id="pass-note" placeholder="用途說明">
+            </div>
+            <div class="form-group">
+                <label>&nbsp;</label>
+                <button type="submit" class="btn btn-primary">建立通行證</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- 有效通行證列表 -->
+    <div class="section">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <h2 style="margin:0;">📋 通行證列表</h2>
+            <div style="display:flex; gap:10px;">
+                <button class="btn btn-secondary" onclick="loadPasses('all')">全部</button>
+                <button class="btn btn-primary" onclick="loadPasses('active')">僅有效</button>
+                <button class="btn btn-warning" onclick="loadPasses('expired')">已過期</button>
+            </div>
+        </div>
+        
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>車牌</th>
+                        <th>訪客姓名</th>
+                        <th>電話</th>
+                        <th>有效時間</th>
+                        <th>狀態</th>
+                        <th>備註</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="passes-tbody">
+                    <tr><td colspan="7" style="text-align:center; color:#999;">載入中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentFilter = 'active';
+
+function loadPasses(filter = 'all') {
+    currentFilter = filter;
+    const url = filter === 'all' ? '/api/visitor-passes' : '/api/visitor-passes/active';
+    
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('passes-tbody');
+            
+            if (!data.passes || data.passes.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#999;">目前沒有通行證記錄</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = data.passes.map(pass => {
+                const statusBadge = {
+                    'active': '<span style="background:#28a745; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">有效</span>',
+                    'used': '<span style="background:#6c757d; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">已使用</span>',
+                    'expired': '<span style="background:#dc3545; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">已過期</span>',
+                    'cancelled': '<span style="background:#ffc107; color:black; padding:2px 8px; border-radius:10px; font-size:12px;">已取消</span>'
+                }[pass.status] || pass.status;
+                
+                const isActive = pass.status === 'active';
+                const cancelBtn = isActive 
+                    ? `<button class="btn-sm btn-danger" onclick="cancelPass(${pass.id})">取消</button>`
+                    : '';
+                
+                return `
+                    <tr>
+                        <td><strong>${pass.plate}</strong></td>
+                        <td>${pass.visitor_name || '-'}</td>
+                        <td>${pass.visitor_phone || '-'}</td>
+                        <td>${formatDate(pass.valid_from)} ~ ${formatDate(pass.valid_until)}</td>
+                        <td>${statusBadge}</td>
+                        <td>${pass.note || '-'}</td>
+                        <td>${cancelBtn}</td>
+                    </tr>
+                `;
+            }).join('');
+        })
+        .catch(err => {
+            console.error('載入通行證失敗:', err);
+            document.getElementById('passes-tbody').innerHTML = 
+                '<tr><td colspan="7" style="text-align:center; color:#dc3545;">載入失敗</td></tr>';
+        });
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    return d.toLocaleString('zh-TW', { 
+        month: '2-digit', day: '2-digit', 
+        hour: '2-digit', minute: '2-digit'
+    });
+}
+
+function cancelPass(id) {
+    if (!confirm('確定要取消這個通行證？')) return;
+    
+    fetch(`/api/visitor-passes/${id}/cancel`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('✅ 已取消通行證');
+                loadPasses(currentFilter);
+            } else {
+                alert('❌ 取消失敗：' + data.error);
+            }
+        });
+}
+
+// 建立通行證表單
+document.getElementById('pass-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const plate = document.getElementById('pass-plate').value.trim().toUpperCase();
+    const visitor_name = document.getElementById('pass-name').value.trim();
+    const visitor_phone = document.getElementById('pass-phone').value.trim();
+    const valid_hours = parseInt(document.getElementById('pass-hours').value);
+    const note = document.getElementById('pass-note').value.trim();
+    
+    if (!plate) {
+        alert('請填寫車牌');
+        return;
+    }
+    
+    fetch('/api/visitor-passes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            plate, visitor_name, visitor_phone, valid_hours, note
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert('✅ ' + data.message);
+            document.getElementById('pass-form').reset();
+            loadPasses('active');
+        } else {
+            alert('❌ 建立失敗：' + data.error);
+        }
+    });
+});
+
+// 初始載入
+loadPasses('active');
+</script>
+{% endblock %}

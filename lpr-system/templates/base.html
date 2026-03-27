@@ -19,6 +19,7 @@
             <a href="{{ url_for('index') }}" class="{% if request.endpoint == 'index' %}active{% endif %}">首頁</a>
             <a href="{{ url_for('owners') }}" class="{% if request.endpoint == 'owners' %}active{% endif %}">車主管理</a>
             <a href="{{ url_for('parking_slots') }}" class="{% if request.endpoint == 'parking_slots' %}active{% endif %}">🅿️車位管理</a>
+            <a href="{{ url_for('visitor_passes') }}" class="{% if request.endpoint == 'visitor_passes' %}active{% endif %}">🎫訪客通行</a>
             <a href="{{ url_for('billing') }}" class="{% if request.endpoint == 'billing' %}active{% endif %}">💰計費管理</a>
             <a href="{{ url_for('records') }}" class="{% if request.endpoint == 'records' %}active{% endif %}">📋開門紀錄</a>
             <a href="{{ url_for('settings') }}" class="{% if request.endpoint == 'settings' %}active{% endif %}">⚙️設定</a>

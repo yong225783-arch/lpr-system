@@ -227,19 +227,19 @@ def get_owner_by_id(owner_id):
     conn.close()
     return dict(row) if row else None
 
-def add_owner(name, phone, plate, car_type='轎車', slot_number=None, note='', owner_id=None, member_id=None):
+def add_owner(name, phone, plate, car_type='轎車', slot_number=None, note='', owner_id=None, member_id=None, owner_type='resident'):
     conn = get_db()
     try:
         if owner_id:
             # 手動指定 ID
             conn.execute(
-                'INSERT INTO owners (id, member_id, name, phone, plate, car_type, slot_number, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                (owner_id, member_id, name, phone, plate, car_type, slot_number if slot_number else None, note)
+                'INSERT INTO owners (id, member_id, name, phone, plate, car_type, owner_type, slot_number, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (owner_id, member_id, name, phone, plate, car_type, owner_type, slot_number if slot_number else None, note)
             )
         else:
             conn.execute(
-                'INSERT INTO owners (member_id, name, phone, plate, car_type, slot_number, note) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                (member_id, name, phone, plate, car_type, slot_number if slot_number else None, note)
+                'INSERT INTO owners (member_id, name, phone, plate, car_type, owner_type, slot_number, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                (member_id, name, phone, plate, car_type, owner_type, slot_number if slot_number else None, note)
             )
         conn.commit()
         conn.close()
@@ -250,12 +250,12 @@ def add_owner(name, phone, plate, car_type='轎車', slot_number=None, note='', 
             return False, 'ID 已經存在'
         return False, '車牌已存在'
 
-def update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist, member_id=None):
+def update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist, member_id=None, owner_type='resident'):
     conn = get_db()
     try:
         conn.execute(
-            '''UPDATE owners SET member_id=?, name=?, phone=?, plate=?, car_type=?, slot_number=?, note=?, is_blacklist=? WHERE id=?''',
-            (member_id, name, phone, plate, car_type, slot_number, note, is_blacklist, owner_id)
+            '''UPDATE owners SET member_id=?, name=?, phone=?, plate=?, car_type=?, owner_type=?, slot_number=?, note=?, is_blacklist=? WHERE id=?''',
+            (member_id, name, phone, plate, car_type, owner_type, slot_number, note, is_blacklist, owner_id)
         )
         conn.commit()
         conn.close()

@@ -405,6 +405,7 @@ def owners_add():
     phone = request.form.get('phone', '').strip()
     plate = request.form.get('plate', '').strip().upper()
     car_type = request.form.get('car_type', '轎車').strip()
+    owner_type = request.form.get('owner_type', 'resident').strip()
     slot_number = request.form.get('slot_number', '').strip()
     note = request.form.get('note', '').strip()
     member_id = request.form.get('member_id', '').strip()
@@ -413,7 +414,7 @@ def owners_add():
     else:
         owner_id = request.form.get('id', '').strip()
         owner_id = int(owner_id) if owner_id else None
-        ok, msg = db.add_owner(name, phone, plate, car_type, slot_number, note, owner_id, member_id)
+        ok, msg = db.add_owner(name, phone, plate, car_type, slot_number, note, owner_id, member_id, owner_type)
         if not ok:
             flash(msg, 'error')
     return redirect(url_for('owners'))
@@ -426,11 +427,12 @@ def owners_edit(owner_id):
     phone = request.form.get('phone', '').strip()
     plate = request.form.get('plate', '').strip().upper()
     car_type = request.form.get('car_type', '轎車').strip()
+    owner_type = request.form.get('owner_type', 'resident').strip()
     slot_number = request.form.get('slot_number', '').strip()
     note = request.form.get('note', '').strip()
     member_id = request.form.get('member_id', '').strip()
     is_blacklist = 1 if request.form.get('is_blacklist') else 0
-    ok, msg = db.update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist, member_id)
+    ok, msg = db.update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist, member_id, owner_type)
     if not ok:
         flash(msg, 'error')
     return redirect(url_for('owners'))
@@ -544,6 +546,13 @@ def api_records_export():
     return response
 
 # ============ 訪客通行證 ============
+
+@app.route('/visitor-passes')
+def visitor_passes():
+    """訪客通行證管理頁面"""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    return render_template('visitor_passes.html')
 
 @app.route('/api/visitor-passes')
 def api_visitor_passes():

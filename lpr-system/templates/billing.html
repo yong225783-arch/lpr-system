@@ -34,6 +34,24 @@
         </div>
     </div>
 
+    <!-- 催繳功能 -->
+    <div class="section" style="background:#fff3cd; padding:20px; border-radius:10px; margin-bottom:20px;">
+        <h2 style="margin-top:0; color:#856404;">⚠️ 催繳管理</h2>
+        <div style="display:flex; gap:15px; align-items:center; margin-bottom:15px;">
+            <label>顯示超過</label>
+            <input type="number" id="unpaid-days" value="7" min="1" max="90" style="width:60px; padding:5px;">
+            <label>天未繳費的帳單</label>
+            <button class="btn btn-warning" onclick="loadUnpaidBills()">查詢</button>
+        </div>
+        <div id="unpaid-results" style="display:none;">
+            <div style="margin-bottom:10px;">
+                <strong>待繳帳單：</strong> <span id="unpaid-count">0</span> 筆
+                <strong style="margin-left:20px;">總金額：</strong> NT$ <span id="unpaid-total">0</span>
+            </div>
+            <div id="unpaid-list" style="max-height:300px; overflow-y:auto;"></div>
+        </div>
+    </div>
+
     <!-- 搜尋和篩選 -->
     <div class="filter-bar">
         <input type="text" id="plate-search" placeholder="搜尋車牌..." onkeyup="filterBilling()">
@@ -463,6 +481,85 @@ async function loadIncomeChart() {
         });
     } catch (e) {
         console.error('載入圖表失敗:', e);
+    }
+}
+
+async function loadUnpaidBills() {
+    const days = document.getElementById('unpaid-days').value;
+    const resultsDiv = document.getElementById('unpaid-results');
+    const listDiv = document.getElementById('unpaid-list');
+    
+    try {
+        const res = await fetch(`/api/billing/unpaid?days=${days}`);
+        const data = await res.json();
+        
+        document.getElementById('unpaid-count').textContent = data.count;
+        document.getElementById('unpaid-total').textContent = data.total_unpaid.toLocaleString();
+        resultsDiv.style.display = 'block';
+        
+        if (!data.bills || data.bills.length === 0) {
+            listDiv.innerHTML = '<div style="color:#28a745; text-align:center; padding:20px;">✨ 目前沒有拖欠帳單</div>';
+            return;
+        }
+        
+        listDiv.innerHTML = `
+            <table class="table" style="font-size:14px;">
+                <thead>
+                    <tr>
+                        <th>車牌</th>
+                        <th>車主</th>
+                        <th>電話</th>
+                        <th>金額</th>
+                        <th>離場時間</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${data.bills.map(b => `
+                        <tr>
+                            <td><strong>${b.plate}</strong></td>
+                            <td>${b.owner_name || '-'}</td>
+                            <td>${b.phone || '-'}</td>
+                            <td style="color:#dc3545; font-weight:bold;">NT$ ${b.amount}</td>
+                            <td>${formatDate(b.exit_time)}</td>
+                            <td>
+                                <button class="btn-sm btn-success" onclick="markPaid(${b.id})">已繳</button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (e) {
+        console.error('載入催繳資料失敗:', e);
+        alert('載入失敗');
+    }
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    return d.toLocaleString('zh-TW', { 
+        month: '2-digit', day: '2-digit', 
+        hour: '2-digit', minute: '2-digit'
+    });
+}
+
+async function markPaid(billingId) {
+    if (!confirm('確認已收到此帳單款項？')) return;
+    
+    try {
+        const res = await fetch(`/api/billing/${billingId}/mark-paid`, { method: 'POST' });
+        const data = await res.json();
+        
+        if (data.success) {
+            alert('✅ 已更新為已繳費');
+            loadUnpaidBills();
+        } else {
+            alert('❌ 更新失敗：' + data.error);
+        }
+    } catch (e) {
+        alert('❌ 更新失敗');
     }
 }
 </script>

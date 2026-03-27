@@ -19,22 +19,30 @@
                 <th>姓名</th>
                 <th>電話</th>
                 <th>車牌</th>
-                <th>車位</th>
+                <th>類型</th>
                 <th>狀態</th>
                 <th>操作</th>
             </tr>
         </thead>
         <tbody id="owners-tbody">
             {% for o in owners %}
-            <tr class="{% if o.is_blacklist %}row-danger{% endif %}" data-blacklist="{{ o.is_blacklist }}">
+            <tr class="{% if o.is_blacklist %}row-danger{% endif %}" data-blacklist="{{ o.is_blacklist }}" data-owner-type="{{ o.owner_type }}">
                 <td>{{ o.member_id or o.id }}</td>
                 <td>{{ o.name }}</td>
                 <td>{{ o.phone or '-' }}</td>
                 <td><strong>{{ o.plate }}</strong></td>
-                <td>{{ o.note or '' }}</td>
+                <td>
+                    {% if o.owner_type == 'resident' %}
+                    <span style="background:#007bff; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">月租戶</span>
+                    {% elif o.owner_type == 'visitor' %}
+                    <span style="background:#6c757d; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">臨停戶</span>
+                    {% else %}
+                    {{ o.owner_type }}
+                    {% endif %}
+                </td>
                 <td>
                     <span class="badge badge-{% if o.is_blacklist %}danger{% else %}success{% endif %}">
-                        {% if o.is_blacklist %}黑名單{% else %}正常{% endif %}
+                        {% if o.is_blacklist %}🚫 黑名單{% else %}✅ 正常{% endif %}
                     </span>
                 </td>
                 <td>
@@ -85,6 +93,13 @@
                 </select>
             </div>
             <div class="form-group">
+                <label>住戶類型</label>
+                <select name="owner_type" id="ownerType">
+                    <option value="resident">月租戶</option>
+                    <option value="visitor">臨停戶</option>
+                </select>
+            </div>
+            <div class="form-group">
                 <label>車位</label>
                 <input type="text" name="slot_number" id="ownerSlotNumber">
             </div>
@@ -116,6 +131,7 @@ function showAddModal() {
     document.getElementById('ownerPhone').value = '';
     document.getElementById('ownerPlate').value = '';
     document.getElementById('ownerCarType').value = '轎車';
+    document.getElementById('ownerType').value = 'resident';
     document.getElementById('ownerSlotNumber').value = '';
     document.getElementById('ownerNote').value = '';
     document.getElementById('ownerBlacklist').checked = false;
@@ -130,6 +146,7 @@ function editOwner(o) {
     document.getElementById('ownerPhone').value = o.phone || '';
     document.getElementById('ownerPlate').value = o.plate;
     document.getElementById('ownerCarType').value = o.car_type || '轎車';
+    document.getElementById('ownerType').value = o.owner_type || 'resident';
     document.getElementById('ownerSlotNumber').value = o.slot_number || '';
     document.getElementById('ownerNote').value = o.note || '';
     document.getElementById('ownerBlacklist').checked = o.is_blacklist == 1;
