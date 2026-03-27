@@ -782,6 +782,11 @@ def ocr_crop_with_paddleocr(crop_img):
         h, w = crop_img.shape[:2]
         img_large = cv2.resize(crop_img, (w * 3, h * 3), interpolation=cv2.INTER_CUBIC)
         
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+            cv2.imwrite(tmp.name, img_large)
+            result = ocr.readtext(tmp.name, paragraph=False, detail=1)
+            os.unlink(tmp.name)
+        
         texts = []
         if result:
             for line in result:
