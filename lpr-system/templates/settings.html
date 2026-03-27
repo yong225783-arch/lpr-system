@@ -138,6 +138,19 @@
             </div>
         </div>
     </div>
+
+    <div class="settings-card">
+        <h2>💾 資料庫備份</h2>
+        <p style="color:#666; margin-bottom:15px;">系統會自動保留最近 10 個備份</p>
+        <div style="display:flex; gap:10px; margin-bottom:15px;">
+            <button class="btn btn-primary" onclick="backupNow()">📦 立即備份</button>
+            <button class="btn btn-secondary" onclick="refreshBackups()">🔄 刷新</button>
+        </div>
+        <div id="backup-list" style="max-height:200px; overflow-y:auto;">
+            <div style="color:#999; text-align:center; padding:20px;">載入中...</div>
+        </div>
+    </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -178,5 +191,70 @@ async function testRelay() {
     }
     btn.disabled = false;
 }
+
+async function backupNow() {
+    try {
+        const res = await fetch('/api/backup');
+        const data = await res.json();
+        if (data.success) {
+            alert('✅ 備份成功！');
+            refreshBackups();
+        } else {
+            alert('❌ 備份失敗：' + data.message);
+        }
+    } catch(e) {
+        alert('❌ 備份失敗');
+    }
+}
+
+async function refreshBackups() {
+    try {
+        const res = await fetch('/api/backup/list');
+        const data = await res.json();
+        const list = document.getElementById('backup-list');
+        
+        if (!data.backups || data.backups.length === 0) {
+            list.innerHTML = '<div style="color:#999; text-align:center; padding:20px;">尚無備份</div>';
+            return;
+        }
+        
+        list.innerHTML = data.backups.map(b => `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; border-bottom:1px solid #eee;">
+                <div>
+                    <div style="font-weight:bold;">${b.name}</div>
+                    <div style="font-size:12px; color:#666;">${b.time} (${(b.size/1024).toFixed(1)} KB)</div>
+                </div>
+                <div style="display:flex; gap:5px;">
+                    <button class="btn-small btn-success" onclick="downloadBackup('${b.name}')">下載</button>
+                    <button class="btn-small btn-danger" onclick="restoreBackup('${b.name}')">還原</button>
+                </div>
+            </div>
+        `).join('');
+    } catch(e) {
+        console.error('載入備份列表失敗:', e);
+    }
+}
+
+function downloadBackup(name) {
+    window.location.href = '/api/backup/download/' + name;
+}
+
+function restoreBackup(name) {
+    if (!confirm('確定要還原到這個備份？目前資料將被取代！')) return;
+    if (!confirm('再次確認：還原後系統需要重啟，確定嗎？')) return;
+    
+    fetch('/api/backup/restore/' + name)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('✅ 還原成功！請手動重啟系統。');
+            } else {
+                alert('❌ 還原失敗：' + data.message);
+            }
+        });
+}
+
+// 頁面載入時自動刷新備份列表
+refreshBackups();
 </script>
 {% endblock %}

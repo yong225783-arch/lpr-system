@@ -7,6 +7,7 @@ import os
 import sys
 import io
 import time
+import shutil
 import logging
 import threading
 import cv2
@@ -18,6 +19,43 @@ from flask import (
 )
 from werkzeug.security import generate_password_hash
 import database as db
+
+# ============ 資料庫備份 ============
+
+def backup_database():
+    """自動備份資料庫"""
+    try:
+        backup_dir = 'backups'
+        os.makedirs(backup_dir, exist_ok=True)
+        
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_file = os.path.join(backup_dir, f'lpr_backup_{timestamp}.db')
+        
+        # 複製資料庫
+        shutil.copy2('lpr.db', backup_file)
+        
+        # 只保留最近 10 個備份
+        backups = sorted([f for f in os.listdir(backup_dir) if f.endswith('.db')])
+        while len(backups) > 10:
+            oldest = backups.pop(0)
+            os.remove(os.path.join(backup_dir, oldest))
+            logger.info(f'刪除舊備份: {oldest}')
+        
+        logger.info(f'資料庫已備份: {backup_file}')
+        return True
+    except Exception as e:
+        logger.error(f'資料庫備份失敗: {e}')
+        return False
+
+def restore_database(backup_file):
+    """從備份還原資料庫"""
+    try:
+        shutil.copy2(backup_file, 'lpr.db')
+        logger.info(f'資料庫已還原: {backup_file}')
+        return True
+    except Exception as e:
+        logger.error(f'資料庫還原失敗: {e}')
+        return False
 
 # ============ Flask App ============
 
@@ -487,6 +525,66 @@ def settings():
         ocr_engine=db.get_setting('ocr_engine', 'easyocr')
     )
 
+# ============ 資料庫備份 ============
+
+@app.route('/api/backup')
+def api_backup():
+    """手動備份資料庫"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登入'})
+    
+    if backup_database():
+        return jsonify({'success': True, 'message': '備份成功'})
+    return jsonify({'success': False, 'message': '備份失敗'})
+
+@app.route('/api/backup/list')
+def api_backup_list():
+    """取得備份列表"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登入'})
+    
+    backup_dir = 'backups'
+    if not os.path.exists(backup_dir):
+        return jsonify({'success': True, 'backups': []})
+    
+    backups = []
+    for f in sorted(os.listdir(backup_dir), reverse=True):
+        if f.endswith('.db'):
+            path = os.path.join(backup_dir, f)
+            backups.append({
+                'name': f,
+                'size': os.path.getsize(path),
+                'time': datetime.fromtimestamp(os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M:%S')
+            })
+    
+    return jsonify({'success': True, 'backups': backups})
+
+@app.route('/api/backup/restore/<backup_name>')
+def api_backup_restore(backup_name):
+    """從備份還原"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登入'})
+    
+    backup_file = os.path.join('backups', backup_name)
+    if not os.path.exists(backup_file):
+        return jsonify({'success': False, 'message': '找不到備份檔案'})
+    
+    if restore_database(backup_file):
+        return jsonify({'success': True, 'message': '還原成功，請重啟系統'})
+    return jsonify({'success': False, 'message': '還原失敗'})
+
+@app.route('/api/backup/download/<backup_name>')
+def api_backup_download(backup_name):
+    """下載備份檔案"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登入'})
+    
+    backup_file = os.path.join('backups', backup_name)
+    if not os.path.exists(backup_file):
+        return jsonify({'success': False, 'message': '找不到備份檔案'})
+    
+    return send_file(backup_file, as_attachment=True)
+
 @app.route('/settings/save', methods=['POST'])
 def settings_save():
     if 'user_id' not in session:
@@ -721,10 +819,55 @@ def apply_perspective_transform(crop_img):
         logger.error(f'影像增強失敗: {e}')
         return crop_img
 
+def preprocess_for_ocr(img):
+    """
+    專業的車牌圖片前處理，專為 OCR 優化
+    """
+    try:
+        # 轉灰階
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img
+        
+        # 放大到標準高度（150像素高度最適合 OCR）
+        h, w = gray.shape
+        target_height = 150
+        scale = target_height / h
+        new_width = int(w * scale)
+        resized = cv2.resize(gray, (new_width, target_height), interpolation=cv2.INTER_CUBIC)
+        
+        # 高斯模糊去噪
+        blurred = cv2.GaussianBlur(resized, (3, 3), 0)
+        
+        # Otsu's 二值化（自動找最佳門檻）
+        _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        # 形態學操作：去除小噪點、填補孔洞
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+        cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+        
+        # 銳利化
+        sharpen_kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+        sharpened = cv2.filter2D(cleaned, -1, sharpen_kernel)
+        
+        # 對比增強
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        enhanced = clahe.apply(sharpened)
+        
+        return enhanced
+        
+    except Exception as e:
+        logger.error(f'OCR 前處理失敗: {e}')
+        return img
+
 def ocr_with_paddleocr(image_path):
     """使用 EasyOCR 辨識圖片中的文字（優化版）"""
     try:
         import cv2
+        import pytesseract
+        import tempfile
+        import os
         ocr = get_easyocr()
         
         # 讀取圖片
@@ -732,24 +875,43 @@ def ocr_with_paddleocr(image_path):
         if img is None:
             return []
         
-        # 放大圖片讓 OCR 更容易辨識
-        h, w = img.shape[:2]
-        img_large = cv2.resize(img, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
+        # 方法1: Tesseract OCR（對車牌效果好）
+        processed = preprocess_for_ocr(img)
         
-        # 簡單的前處理：轉灰階 + 高斯模糊去噪
-        gray = cv2.cvtColor(img_large, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-        
-        # 儲存處理後的圖片用於 OCR
-        import tempfile
-        import os
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-            cv2.imwrite(tmp.name, blurred)
-            # 使用 EasyOCR 的簡單模式，不使用 GPU
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+            # Tesseract 需要黑白圖片
+            cv2.imwrite(tmp.name, processed)
+            
+            # Tesseract 辨識（使用 PSM 7 = 單行文字）
+            try:
+                tess_text = pytesseract.image_to_string(
+                    tmp.name, 
+                    lang='eng', 
+                    config='--psm 7 --oem 3'
+                ).strip()
+                if tess_text:
+                    logger.info(f'Tesseract 找到了: {tess_text}')
+            except Exception as e:
+                tess_text = ''
+                logger.error(f'Tesseract failed: {e}')
+            
+            # EasyOCR 備援
+            img_large = cv2.resize(img, (img.shape[1] * 2, img.shape[0] * 2), interpolation=cv2.INTER_CUBIC)
+            cv2.imwrite(tmp.name, img_large)
             result = ocr.readtext(tmp.name, paragraph=False, detail=1)
+            
             os.unlink(tmp.name)
         
         texts = []
+        
+        # Tesseract 結果
+        if tess_text:
+            texts.append({
+                'text': tess_text,
+                'confidence': 0.8
+            })
+        
+        # EasyOCR 結果
         if result:
             for line in result:
                 bbox, text, conf = line
@@ -758,36 +920,63 @@ def ocr_with_paddleocr(image_path):
                     'confidence': round(conf, 2)
                 })
         
-        logger.info(f'EasyOCR 找到了 {len(texts)} 個文字區域')
+        logger.info(f'OCR 找到了 {len(texts)} 個文字: {[t["text"] for t in texts]}')
         return texts
     except Exception as e:
-        logger.error(f'EasyOCR failed: {e}')
+        logger.error(f'OCR failed: {e}')
         return []
 
 def ocr_crop_with_paddleocr(crop_img):
-    """對裁剪後的車牌區域使用 EasyOCR 辨識（優化版）"""
+    """對裁剪後的車牌區域使用 OCR 辨識（優化版）"""
     try:
         import tempfile
         import os
         import cv2
+        import pytesseract
         ocr = get_easyocr()
         
         # 確保裁切圖片足夠大
         h, w = crop_img.shape[:2]
-        if h < 30:
-            scale = 30 / h
-            crop_img = cv2.resize(crop_img, (int(w * scale), 30))
+        if h < 20:
+            scale = 20 / h
+            crop_img = cv2.resize(crop_img, (int(w * scale), 20))
         
-        # 放大 3 倍以獲得更多細節
-        h, w = crop_img.shape[:2]
-        img_large = cv2.resize(crop_img, (w * 3, h * 3), interpolation=cv2.INTER_CUBIC)
+        # 方法1: Tesseract OCR（對車牌效果好）
+        processed = preprocess_for_ocr(crop_img)
         
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+            cv2.imwrite(tmp.name, processed)
+            
+            # Tesseract 辨識
+            try:
+                tess_text = pytesseract.image_to_string(
+                    tmp.name,
+                    lang='eng',
+                    config='--psm 7 --oem 3'
+                ).strip()
+                if tess_text:
+                    logger.info(f'Tesseract crop 找到了: {tess_text}')
+            except Exception as e:
+                tess_text = ''
+                logger.error(f'Tesseract crop failed: {e}')
+            
+            # EasyOCR 備援
+            img_large = cv2.resize(crop_img, (w * 4, h * 4), interpolation=cv2.INTER_CUBIC)
             cv2.imwrite(tmp.name, img_large)
             result = ocr.readtext(tmp.name, paragraph=False, detail=1)
+            
             os.unlink(tmp.name)
         
         texts = []
+        
+        # Tesseract 結果
+        if tess_text:
+            texts.append({
+                'text': tess_text,
+                'confidence': 0.85
+            })
+        
+        # EasyOCR 結果
         if result:
             for line in result:
                 bbox, text, conf = line
@@ -796,10 +985,10 @@ def ocr_crop_with_paddleocr(crop_img):
                     'confidence': round(conf, 2)
                 })
         
-        logger.info(f'EasyOCR crop 找到了 {len(texts)} 個文字: {[t["text"] for t in texts]}')
+        logger.info(f'OCR crop 找到了 {len(texts)} 個文字: {[t["text"] for t in texts]}')
         return texts
     except Exception as e:
-        logger.error(f'EasyOCR crop failed: {e}')
+        logger.error(f'OCR crop failed: {e}')
         return []
 
 def ocr_with_tesseract(image_path):
