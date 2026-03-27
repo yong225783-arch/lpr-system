@@ -486,12 +486,12 @@ def calculate_fee(duration_minutes, slot_number=None, car_type='all'):
 
 # ============ 帳單管理 ============
 
-def create_billing(session_id, plate, owner_name, amount, duration_minutes, entry_time, exit_time, payment_method='cash'):
+def create_billing(session_id, plate, owner_name, amount, duration_minutes, entry_time, exit_time, payment_method='cash', note=''):
     conn = get_db()
     conn.execute(
-        '''INSERT INTO billing (session_id, plate, owner_name, amount, duration_minutes, entry_time, exit_time, payment_method) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-        (session_id, plate, owner_name, amount, duration_minutes, entry_time, exit_time, payment_method)
+        '''INSERT INTO billing (session_id, plate, owner_name, amount, duration_minutes, entry_time, exit_time, payment_method, note) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+        (session_id, plate, owner_name, amount, duration_minutes, entry_time, exit_time, payment_method, note)
     )
     conn.commit()
     conn.close()

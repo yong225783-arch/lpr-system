@@ -130,19 +130,63 @@
 
 <!-- 手動離場 Modal -->
 <div class="modal" id="exit-modal">
-    <div class="modal-content">
+    <div class="modal-content" style="max-width:500px;">
         <span class="modal-close" onclick="closeModal('exit-modal')">&times;</span>
         <h2>🚙 手動離場</h2>
         <form id="exit-form">
             <div class="form-group">
                 <label>車牌號碼</label>
-                <input type="text" id="exit-plate" placeholder="例如：ABC-1234" required>
+                <input type="text" id="exit-plate" placeholder="例如：ABC-1234" required onkeyup="lookupExitPlate()">
             </div>
-            <div id="exit-fee-info" style="display:none; background:#f8f9fa; padding:15px; border-radius:5px; margin-bottom:15px;">
-                <p>停車時長：<strong id="exit-duration"></strong></p>
-                <p>費用：<strong style="color:#e74c3c; font-size:20px;">NT$ <span id="exit-fee"></span></strong></p>
+            
+            <!-- 車輛資訊 -->
+            <div id="exit-vehicle-info" style="display:none; background:#e7f3ff; padding:15px; border-radius:8px; margin-bottom:15px;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                    <div><strong>車主：</strong><span id="exit-owner">-</span></div>
+                    <div><strong>車位：</strong><span id="exit-slot">-</span></div>
+                    <div><strong>進場時間：</strong><span id="exit-entry-time">-</span></div>
+                    <div><strong>已停時間：</strong><span id="exit-duration-display">-</span></div>
+                </div>
             </div>
-            <button type="submit" class="btn btn-primary">確認離場</button>
+            
+            <!-- 費用資訊 -->
+            <div id="exit-fee-info" style="display:none; background:#fff3cd; padding:15px; border-radius:8px; margin-bottom:15px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <span>計算費用：</span>
+                    <span style="font-size:24px; font-weight:bold; color:#e74c3c;">NT$ <span id="exit-fee-calculated">0</span></span>
+                </div>
+                
+                <div class="form-group" style="margin-bottom:10px;">
+                    <label>離場原因</label>
+                    <select id="exit-reason" onchange="adjustExitFee()">
+                        <option value="normal">正常離場（繳費）</option>
+                        <option value="free">免費放行（公務/特殊）</option>
+                        <option value="discount">優惠折扣</option>
+                        <option value="error">作業失誤（免費）</option>
+                        <option value="other">其他</option>
+                    </select>
+                </div>
+                
+                <div class="form-group" id="discount-group" style="display:none; margin-bottom:10px;">
+                    <label>折扣金額（NT$）</label>
+                    <input type="number" id="exit-discount" value="0" min="0" onchange="calculateFinalFee()">
+                </div>
+                
+                <div class="form-group" id="final-fee-group" style="display:none; margin-bottom:10px;">
+                    <label>最終費用（NT$）</label>
+                    <input type="number" id="exit-final-fee" value="0" min="0" style="font-size:20px; font-weight:bold; color:#28a745;">
+                </div>
+                
+                <div class="form-group">
+                    <label>備註</label>
+                    <input type="text" id="exit-note" placeholder="選填，例如：優惠券、發票號碼">
+                </div>
+            </div>
+            
+            <div style="display:flex; gap:10px; justify-content:flex-end;">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('exit-modal')">取消</button>
+                <button type="submit" class="btn btn-primary" id="btn-confirm-exit" disabled>確認離場</button>
+            </div>
         </form>
     </div>
 </div>
@@ -424,6 +468,7 @@ function doEntry(slotNumber) {
 }
 
 function doExit(slotNumber) {
+    // 透過車位查詢並離場
     fetch('/api/parking/exit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -432,7 +477,7 @@ function doExit(slotNumber) {
         if (data.error) {
             alert(data.error);
         } else {
-            alert(`離場成功！費用：NT$ ${data.fee}`);
+            alert(`離場成功！停車 ${data.duration} 分鐘，費用：NT$ ${data.fee}`);
             loadSlots();
             loadSlotStats();
             loadActiveSessions();
@@ -440,25 +485,122 @@ function doExit(slotNumber) {
     });
 }
 
+// 查詢車牌並顯示資訊
+function lookupExitPlate() {
+    const plate = document.getElementById('exit-plate').value.trim();
+    if (plate.length < 3) return;
+    
+    fetch('/api/parking/sessions/active')
+        .then(r => r.json())
+        .then(sessions => {
+            const session = sessions.find(s => s.plate.toUpperCase() === plate.toUpperCase());
+            const vehicleInfo = document.getElementById('exit-vehicle-info');
+            const feeInfo = document.getElementById('exit-fee-info');
+            const btnConfirm = document.getElementById('btn-confirm-exit');
+            
+            if (session) {
+                // 找到匹配的車輛
+                document.getElementById('exit-owner').textContent = session.owner_name || '-';
+                document.getElementById('exit-slot').textContent = session.slot_number || '-';
+                document.getElementById('exit-entry-time').textContent = session.entry_time;
+                document.getElementById('exit-duration-display').textContent = session.duration || '-';
+                document.getElementById('exit-fee-calculated').textContent = session.fee || 0;
+                
+                vehicleInfo.style.display = 'block';
+                feeInfo.style.display = 'block';
+                btnConfirm.disabled = false;
+                
+                // 重置表單
+                document.getElementById('exit-reason').value = 'normal';
+                document.getElementById('exit-discount').value = 0;
+                document.getElementById('exit-final-fee').value = session.fee || 0;
+                document.getElementById('exit-note').value = '';
+                document.getElementById('discount-group').style.display = 'none';
+                document.getElementById('final-fee-group').style.display = 'none';
+            } else {
+                vehicleInfo.style.display = 'none';
+                feeInfo.style.display = 'none';
+                btnConfirm.disabled = true;
+            }
+        });
+}
+
+// 根據離場原因調整費用顯示
+function adjustExitFee() {
+    const reason = document.getElementById('exit-reason').value;
+    const discountGroup = document.getElementById('discount-group');
+    const finalFeeGroup = document.getElementById('final-fee-group');
+    const calculatedFee = parseInt(document.getElementById('exit-fee-calculated').textContent) || 0;
+    
+    if (reason === 'free' || reason === 'error') {
+        // 免費
+        document.getElementById('exit-final-fee').value = 0;
+        discountGroup.style.display = 'none';
+        finalFeeGroup.style.display = 'block';
+    } else if (reason === 'discount') {
+        // 優惠
+        discountGroup.style.display = 'block';
+        finalFeeGroup.style.display = 'block';
+        calculateFinalFee();
+    } else {
+        // 正常
+        document.getElementById('exit-final-fee').value = calculatedFee;
+        discountGroup.style.display = 'none';
+        finalFeeGroup.style.display = 'none';
+    }
+}
+
+// 計算最終費用
+function calculateFinalFee() {
+    const calculatedFee = parseInt(document.getElementById('exit-fee-calculated').textContent) || 0;
+    const discount = parseInt(document.getElementById('exit-discount').value) || 0;
+    const finalFee = Math.max(0, calculatedFee - discount);
+    document.getElementById('exit-final-fee').value = finalFee;
+}
+
 function showExitModal(plate) {
+    document.getElementById('exit-form').reset();
     document.getElementById('exit-plate').value = plate;
+    document.getElementById('exit-vehicle-info').style.display = 'none';
     document.getElementById('exit-fee-info').style.display = 'none';
+    document.getElementById('btn-confirm-exit').disabled = true;
     document.getElementById('exit-modal').style.display = 'flex';
+    
+    if (plate) {
+        lookupExitPlate();
+    }
 }
 
 document.getElementById('exit-form').addEventListener('submit', function(e) {
     e.preventDefault();
-    const plate = document.getElementById('exit-plate').value;
+    const plate = document.getElementById('exit-plate').value.trim();
+    const reason = document.getElementById('exit-reason').value;
+    const finalFee = parseInt(document.getElementById('exit-final-fee').value) || 0;
+    const note = document.getElementById('exit-note').value.trim();
     
     fetch('/api/parking/exit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plate: plate })
+        body: JSON.stringify({ 
+            plate: plate,
+            reason: reason,
+            fee: finalFee,
+            note: note
+        })
     }).then(r => r.json()).then(data => {
         if (data.error) {
             alert(data.error);
         } else {
-            alert(`離場成功！停車 ${data.duration} 分鐘，費用：NT$ ${data.fee}`);
+            let message = `離場成功！停車 ${data.duration} 分鐘`;
+            if (reason === 'free' || reason === 'error') {
+                message += '，免費放行';
+            } else {
+                message += `，費用：NT$ ${finalFee}`;
+            }
+            if (note) {
+                message += `\n備註：${note}`;
+            }
+            alert(message);
             closeModal('exit-modal');
             loadSlots();
             loadSlotStats();

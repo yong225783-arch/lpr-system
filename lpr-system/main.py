@@ -1363,6 +1363,9 @@ def api_parking_exit():
     
     plate = data.get('plate', '').upper()
     slot_number = data.get('slot_number')
+    reason = data.get('reason', 'normal')  # normal, free, discount, error, other
+    override_fee = data.get('fee')  # 如果有提供，代表要覆寫費用
+    note = data.get('note', '')
     
     if slot_number:
         # 透過車位找車牌
@@ -1377,7 +1380,12 @@ def api_parking_exit():
     if session_id is None:
         return jsonify({'error': result})
     
+    # 計算費用
     fee = result
+    if override_fee is not None:
+        fee = override_fee
+    elif reason in ('free', 'error'):
+        fee = 0
     
     # 釋放車位
     if slot_number:
@@ -1392,8 +1400,17 @@ def api_parking_exit():
     if relay:
         relay.open_gate()
     
-    # 記錄
-    db.add_record(plate, owner['name'] if owner else None, '離場')
+    # 記錄（根據原因調整描述）
+    reason_text = {
+        'normal': '正常繳費離場',
+        'free': '免費放行',
+        'discount': '優惠折扣離場',
+        'error': '作業失誤離場',
+        'other': '其他原因離場'
+    }.get(reason, '離場')
+    
+    note_suffix = f' ({note})' if note else ''
+    db.add_record(plate, owner['name'] if owner else None, reason_text + note_suffix)
     
     # 建立帳單
     session_data = db.get_parking_session_by_plate(plate) if plate else None
@@ -1410,7 +1427,8 @@ def api_parking_exit():
             amount=fee,
             duration_minutes=duration,
             entry_time=entry,
-            exit_time=exit_t
+            exit_time=exit_t,
+            note=note
         )
     
     return jsonify({
