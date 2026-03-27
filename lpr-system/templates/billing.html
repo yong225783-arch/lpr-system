@@ -26,6 +26,14 @@
         </div>
     </div>
 
+    <!-- 統計圖表 -->
+    <div class="section">
+        <h2>📈 30天收入趨勢</h2>
+        <div style="height:300px;">
+            <canvas id="incomeChart"></canvas>
+        </div>
+    </div>
+
     <!-- 搜尋和篩選 -->
     <div class="filter-bar">
         <input type="text" id="plate-search" placeholder="搜尋車牌..." onkeyup="filterBilling()">
@@ -63,7 +71,10 @@
 
     <!-- 帳單列表 -->
     <div class="section">
-        <h2>📜 帳單列表</h2>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <h2 style="margin:0;">📜 帳單列表</h2>
+            <a href="/api/billing/export" class="btn-success">📥 匯出 CSV</a>
+        </div>
         <table class="data-table" id="billing-table">
             <thead>
                 <tr>
@@ -404,5 +415,55 @@ function closeModal(id) {
 loadBillingStats();
 loadBillingRules();
 loadBillingList();
+loadIncomeChart();
+
+// 載入收入趨勢圖
+let incomeChart = null;
+async function loadIncomeChart() {
+    try {
+        const res = await fetch('/api/billing/daily');
+        const data = await res.json();
+        
+        const ctx = document.getElementById('incomeChart').getContext('2d');
+        
+        // 避免重複建立 chart
+        if (incomeChart) {
+            incomeChart.destroy();
+        }
+        
+        incomeChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.daily.map(d => d.date.substring(5)), // MM-DD
+                datasets: [{
+                    label: '每日收入 (NT$)',
+                    data: data.daily.map(d => d.income),
+                    backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: true },
+                    title: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: '收入 (NT$)' }
+                    },
+                    x: {
+                        title: { display: true, text: '日期' }
+                    }
+                }
+            }
+        });
+    } catch (e) {
+        console.error('載入圖表失敗:', e);
+    }
+}
 </script>
 {% endblock %}

@@ -127,6 +127,19 @@ body {
 }
 .btn-secondary:hover { background: var(--light); }
 
+.btn-success {
+    background: #28a745;
+    color: var(--white);
+    border: none;
+    padding: 0.6rem 1.25rem;
+    border-radius: 6px;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+}
+.btn-success:hover { background: #218838; }
+
 .btn-danger {
     background: var(--danger);
     color: var(--white);

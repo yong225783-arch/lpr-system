@@ -12,7 +12,7 @@ import logging
 import threading
 import cv2
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import (
     Flask, render_template, request, redirect,
     url_for, session, jsonify, send_file, flash
@@ -439,6 +439,66 @@ def api_records_recent():
     records = db.get_records(limit=limit)
     return jsonify({'records': records})
 
+@app.route('/api/records/export')
+def api_records_export():
+    """匯出記錄為 CSV"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    records = db.get_records(limit=10000)
+    
+    # 生成 CSV
+    csv_lines = ['ID,時間,車牌,車主,結果,備註']
+    for r in records:
+        csv_lines.append(f'{r["id"]},{r["created_at"]},{r["plate"]},{r["owner_name"] or ""},{r["result"]},{r["note"] or ""}')
+    
+    csv_content = '\n'.join(csv_lines)
+    
+    return csv_content, 200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': f'attachment; filename=records_{datetime.now().strftime("%Y%m%d")}.csv'
+    }
+
+@app.route('/api/billing/export')
+def api_billing_export():
+    """匯出帳單為 CSV"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    billings = db.get_billing_list(limit=10000)
+    
+    # 生成 CSV
+    csv_lines = ['ID,車牌,車主,金額,停車分鐘,進場時間,離場時間,付款方式,付款狀態,備註']
+    for b in billings:
+        csv_lines.append(f'{b["id"]},{b["plate"]},{b["owner_name"] or ""},{b["amount"]},{b["duration_minutes"]},{b["entry_time"]},{b["exit_time"]},{b["payment_method"]},{b["payment_status"]},{b["note"] or ""}')
+    
+    csv_content = '\n'.join(csv_lines)
+    
+    return csv_content, 200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': f'attachment; filename=billings_{datetime.now().strftime("%Y%m%d")}.csv'
+    }
+
+@app.route('/api/owners/export')
+def api_owners_export():
+    """匯出車主為 CSV"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    owners = db.get_owners()
+    
+    # 生成 CSV
+    csv_lines = ['ID,車牌,姓名,電話,車型,車位,備註']
+    for o in owners:
+        csv_lines.append(f'{o["id"]},{o["plate"]},{o["name"]},{o["phone"] or ""},{o["car_type"]},{o["slot_number"] or ""},{o["note"] or ""}')
+    
+    csv_content = '\n'.join(csv_lines)
+    
+    return csv_content, 200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': f'attachment; filename=owners_{datetime.now().strftime("%Y%m%d")}.csv'
+    }
+
 # --- 手動開門 ---
 
 @app.route('/open', methods=['POST'])
@@ -631,16 +691,40 @@ def settings_save():
 def test_camera():
     if 'user_id' not in session:
         return jsonify({'success': False, 'message': '未登入'})
-    # 嘗試讀取一幀
-    if lpr.camera and lpr.camera.isOpened():
-        ret, frame = lpr.camera.read()
+    
+    # 測試進口攝影機
+    camera_in = lpr.get_camera('in')
+    camera_out = lpr.get_camera('out')
+    
+    result = {'in': False, 'out': False, 'message': ''}
+    
+    if camera_in and camera_in.isOpened():
+        ret, frame = camera_in.read()
         if ret:
-            filename = f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+            filename = f"test_in_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
             filepath = os.path.join('captures', filename)
             os.makedirs('captures', exist_ok=True)
             cv2.imwrite(filepath, frame)
-            return jsonify({'success': True, 'message': '截圖已儲存'})
-    return jsonify({'success': False, 'message': '無法連接攝影機'})
+            result['in'] = True
+    
+    if camera_out and camera_out.isOpened():
+        ret, frame = camera_out.read()
+        if ret:
+            filename = f"test_out_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+            filepath = os.path.join('captures', filename)
+            os.makedirs('captures', exist_ok=True)
+            cv2.imwrite(filepath, frame)
+            result['out'] = True
+    
+    if result['in'] or result['out']:
+        return jsonify({
+            'success': True, 
+            'message': f"進口: {'✅' if result['in'] else '❌'}, 出口: {'✅' if result['out'] else '❌'}",
+            'in': result['in'],
+            'out': result['out']
+        })
+    
+    return jsonify({'success': False, 'message': '無法連接任何攝影機，請檢查 URL 設定'})
 
 @app.route('/api/test_relay', methods=['POST'])
 def test_relay():
@@ -1388,6 +1472,23 @@ def api_billing_stats():
         'month_income': month_summary['total_paid'] or 0,
         'total_count': total_summary['total_count'] or 0
     })
+
+@app.route('/api/billing/daily')
+def api_billing_daily():
+    """取得過去30天每日收入統計"""
+    days = int(request.args.get('days', 30))
+    
+    daily_stats = []
+    for i in range(days - 1, -1, -1):
+        date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
+        summary = db.get_billing_summary(start_date=date, end_date=date)
+        daily_stats.append({
+            'date': date,
+            'income': summary['total_paid'] or 0,
+            'count': summary['total_count'] or 0
+        })
+    
+    return jsonify({'daily': daily_stats})
 
 @app.route('/api/billing/rules')
 def api_billing_rules():
