@@ -153,6 +153,41 @@ def init_db():
             'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
             ('admin', generate_password_hash('admin123'), 'admin')
         )
+    
+    # Migration: 新增 billing_rules 欄位（如果還沒有）
+    try:
+        c.execute("ALTER TABLE billing_rules ADD COLUMN billing_type TEXT DEFAULT 'hourly'")
+    except:
+        pass
+    try:
+        c.execute("ALTER TABLE billing_rules ADD COLUMN monthly_fee INTEGER")
+    except:
+        pass
+    
+    # Migration: 新增 owners 欄位（如果還沒有）
+    try:
+        c.execute("ALTER TABLE owners ADD COLUMN owner_type TEXT DEFAULT 'resident'")
+    except:
+        pass
+
+    # 訪客通行證表（如果還沒有）
+    try:
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS visitor_passes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plate TEXT NOT NULL,
+                visitor_name TEXT,
+                visitor_phone TEXT,
+                valid_from TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                valid_until TIMESTAMP NOT NULL,
+                status TEXT DEFAULT 'active',
+                note TEXT,
+                created_by INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+    except:
+        pass
 
     # 預設收費規則
     c.execute('SELECT * FROM billing_rules WHERE name = ?', ('default',))
@@ -624,6 +659,24 @@ def create_billing(session_id, plate, owner_name, amount, duration_minutes, entr
     )
     conn.commit()
     conn.close()
+
+def get_unpaid_bills(days_threshold=7):
+    """取得拖欠超過指定天數的帳單"""
+    conn = get_db()
+    from datetime import timedelta
+    threshold_date = (datetime.now() - timedelta(days=days_threshold)).strftime('%Y-%m-%d')
+    
+    rows = conn.execute(
+        '''SELECT b.*, o.name as owner_name, o.phone 
+           FROM billing b
+           LEFT JOIN owners o ON b.plate = o.plate
+           WHERE b.payment_status = 'unpaid' 
+           AND b.exit_time < ?
+           ORDER BY b.exit_time ASC''',
+        (threshold_date,)
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
 
 def get_billing_list(limit=100, offset=0, plate_filter=None, date_filter=None, status_filter=None):
     conn = get_db()

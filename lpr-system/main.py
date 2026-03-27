@@ -1660,6 +1660,22 @@ def api_alerts_mark_read():
         a['read'] = True
     return jsonify({'success': True})
 
+@app.route('/api/billing/unpaid')
+def api_billing_unpaid():
+    """取得拖欠帳單"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    days = int(request.args.get('days', 7))  # 預設超過7天
+    unpaid = db.get_unpaid_bills(days_threshold=days)
+    total = sum(b['amount'] for b in unpaid)
+    
+    return jsonify({
+        'bills': unpaid,
+        'total_unpaid': total,
+        'count': len(unpaid)
+    })
+
 def api_billing_stats():
     """取得帳單統計"""
     today = datetime.now().strftime('%Y-%m-%d')
