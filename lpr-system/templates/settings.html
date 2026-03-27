@@ -75,6 +75,49 @@
     </div>
 
     <div class="settings-card">
+        <h2>🎯 車牌辨識微調</h2>
+        <form method="POST" action="{{ url_for('settings_save') }}">
+            <input type="hidden" name="section" value="lpr_tuning">
+            
+            <div class="form-group">
+                <label>YOLOv8 偵測信心度</label>
+                <input type="number" name="yolo_conf" value="{{ yolo_conf or 0.5 }}" min="0.1" max="1.0" step="0.05">
+                <small>較低值會偵測更多物體，但可能增加誤判（預設 0.5）</small>
+            </div>
+            
+            <div class="form-group">
+                <label>OCR 信心度門檻</label>
+                <input type="number" name="ocr_conf" value="{{ ocr_conf or 0.3 }}" min="0.1" max="1.0" step="0.05">
+                <small>較低值會接受更多辨識結果（預設 0.3）</small>
+            </div>
+            
+            <div class="form-group">
+                <label>圖片放大倍數</label>
+                <input type="number" name="image_zoom" value="{{ image_zoom or 2 }}" min="1" max="4" step="0.5">
+                <small>車牌區域放大倍數，越大 OCR 越容易讀取（預設 2）</small>
+            </div>
+            
+            <div class="form-group">
+                <label>同車牌辨識冷卻時間（秒）</label>
+                <input type="number" name="cooldown" value="{{ cooldown or 5 }}" min="1" max="60" step="1">
+                <small>同一車牌短時間內不再重複觸發（預設 5 秒）</small>
+            </div>
+            
+            <div class="form-group">
+                <label>OCR 引擎</label>
+                <select name="ocr_engine">
+                    <option value="easyocr" {% if ocr_engine == 'easyocr' %}selected{% endif %}>EasyOCR（推薦）</option>
+                    <option value="tesseract" {% if ocr_engine == 'tesseract' %}selected{% endif %}>Tesseract</option>
+                    <option value="both" {% if ocr_engine == 'both' %}selected{% endif %}>兩者都用（最準）</option>
+                </select>
+                <small>切換 OCR 引擎看看哪個對你的車牌比較準</small>
+            </div>
+
+            <button type="submit" class="btn-primary">儲存微調設定</button>
+        </form>
+    </div>
+
+    <div class="settings-card">
         <h2>📊 系統資訊</h2>
         <div class="info-list">
             <div class="info-item">

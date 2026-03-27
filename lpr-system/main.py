@@ -479,7 +479,12 @@ def settings():
         relay_port=db.get_setting('relay_port', ''),
         open_duration=float(db.get_setting('open_duration', '1.5')),
         owners_count=len(db.get_owners()),
-        today_count=db.get_record_count(date_filter=datetime.now().strftime('%Y-%m-%d'))
+        today_count=db.get_record_count(date_filter=datetime.now().strftime('%Y-%m-%d')),
+        yolo_conf=float(db.get_setting('yolo_conf', '0.5')),
+        ocr_conf=float(db.get_setting('ocr_conf', '0.3')),
+        image_zoom=float(db.get_setting('image_zoom', '2')),
+        cooldown=int(db.get_setting('cooldown', '5')),
+        ocr_engine=db.get_setting('ocr_engine', 'easyocr')
     )
 
 @app.route('/settings/save', methods=['POST'])
@@ -513,6 +518,13 @@ def settings_save():
             flash('密碼已修改', 'success')
         elif new_pass and new_pass != confirm:
             flash('兩次密碼不同', 'error')
+    elif section == 'lpr_tuning':
+        db.set_setting('yolo_conf', request.form.get('yolo_conf', '0.5'))
+        db.set_setting('ocr_conf', request.form.get('ocr_conf', '0.3'))
+        db.set_setting('image_zoom', request.form.get('image_zoom', '2'))
+        db.set_setting('cooldown', request.form.get('cooldown', '5'))
+        db.set_setting('ocr_engine', request.form.get('ocr_engine', 'easyocr'))
+        flash('車牌辨識微調設定已儲存', 'success')
     return redirect(url_for('settings'))
 
 # ============ 測試 API ============
@@ -634,8 +646,11 @@ def detect_plate_with_yolo(image_path):
         if img is None:
             return []
         
+        # 讀取 YOLO 偵測信心度設定
+        yolo_conf = float(db.get_setting('yolo_conf', '0.5'))
+        
         # YOLOv8 車牌偵測
-        results = model(img, verbose=False, conf=0.5)
+        results = model(img, verbose=False, conf=yolo_conf)
         
         plate_crops = []
         h, w = img.shape[:2]
@@ -782,9 +797,58 @@ def ocr_crop_with_paddleocr(crop_img):
         logger.error(f'EasyOCR crop failed: {e}')
         return []
 
+def ocr_with_tesseract(image_path):
+    """使用 Tesseract OCR 辨識圖片中的文字"""
+    try:
+        import cv2
+        import pytesseract
+        import tempfile
+        import os
+        
+        # 讀取圖片
+        img = cv2.imread(image_path)
+        if img is None:
+            return []
+        
+        # 放大圖片讓 OCR 更容易辨識
+        h, w = img.shape[:2]
+        img_large = cv2.resize(img, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
+        
+        # 轉灰階
+        gray = cv2.cvtColor(img_large, cv2.COLOR_BGR2GRAY)
+        
+        # 二值化處理（黑白分明）
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        # 儲存處理後的圖片用於 OCR
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+            cv2.imwrite(tmp.name, binary)
+            # 使用 Tesseract OCR，設定英語（車牌主要是數字和字母）
+            text = pytesseract.image_to_string(tmp.name, lang='eng', config='--psm 7')
+            os.unlink(tmp.name)
+        
+        # 解析 Tesseract 輸出
+        texts = []
+        for line in text.split('\n'):
+            line = line.strip()
+            if line:
+                texts.append({
+                    'text': line,
+                    'confidence': 0.7  # Tesseract 不提供信心度，用預設值
+                })
+        
+        logger.info(f'Tesseract OCR 找到了 {len(texts)} 個文字: {[t["text"] for t in texts]}')
+        return texts
+    except Exception as e:
+        logger.error(f'Tesseract OCR failed: {e}')
+        return []
+
 def filter_plate_text(ocr_texts):
     """過濾並格式化車牌文字"""
     import re
+    
+    # 讀取 OCR 信心度設定
+    ocr_conf_threshold = float(db.get_setting('ocr_conf', '0.3'))
     
     # 台灣車牌格式
     plate_patterns = [
@@ -813,8 +877,8 @@ def filter_plate_text(ocr_texts):
         # 必須包含數字和字母
         if not re.search(r'[0-9]', text) or not re.search(r'[A-Z]', text):
             continue
-        # 信心度太低就跳過（但接受 0.3 以上的）
-        if conf < 0.3:
+        # 信心度太低就跳過
+        if conf < ocr_conf_threshold:
             continue
         
         text_upper = text.upper()
@@ -858,14 +922,14 @@ def api_detect_plate():
     plate_crops = detect_plate_with_yolo(filepath)
     logger.info(f'YOLOv8 偵測到 {len(plate_crops)} 個車牌區域')
     
-    # Step 2: 對每個車牌區域進行透視變換 + PaddleOCR 辨識
+    # Step 2: 對每個車牌區域進行透視變換 + EasyOCR 辨識
     all_ocr_texts = []
     plate_results = []
     
     for pc in plate_crops:
         # 應用透視變換
         transformed = apply_perspective_transform(pc['crop'])
-        # PaddleOCR 辨識
+        # EasyOCR 辨識
         ocr_texts = ocr_crop_with_paddleocr(transformed)
         plates = filter_plate_text(ocr_texts)
         plate_results.append({
@@ -876,12 +940,21 @@ def api_detect_plate():
             'possible_plates': plates
         })
         all_ocr_texts.extend(ocr_texts)
-        logger.info(f'  {pc["vehicle_type"]} 區域 PaddleOCR: {plates}')
+        logger.info(f'  {pc["vehicle_type"]} 區域 EasyOCR: {plates}')
     
-    # Step 3: 對全圖也做一次 PaddleOCR（作為備援）
+    # Step 3: 對全圖也做一次 EasyOCR（作為備援）
     full_ocr_texts = ocr_with_paddleocr(filepath)
     all_ocr_texts.extend(full_ocr_texts)
     full_plates = filter_plate_text(full_ocr_texts)
+    
+    # Step 3.5: 如果 EasyOCR 沒找到，嘗試 Tesseract OCR
+    if not combined_plates:
+        logger.info('EasyOCR 未找到車牌，嘗試 Tesseract OCR...')
+        tess_texts = ocr_with_tesseract(filepath)
+        tess_plates = filter_plate_text(tess_texts)
+        all_ocr_texts.extend(tess_texts)
+        full_plates.extend(tess_plates)
+        logger.info(f'Tesseract OCR 找到了: {tess_plates}')
     
     # Step 4: 合併所有偵測到的車牌
     all_possible_plates = filter_plate_text(all_ocr_texts)
