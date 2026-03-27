@@ -1067,7 +1067,7 @@ def apply_perspective_transform(crop_img):
 
 def preprocess_for_ocr(img):
     """
-    專業的車牌圖片前處理，專為 OCR 優化
+    專業的車牌圖片前處理，專為 OCR 優化（加強版）
     """
     try:
         # 轉灰階
@@ -1076,18 +1076,23 @@ def preprocess_for_ocr(img):
         else:
             gray = img
         
-        # 放大到標準高度（150像素高度最適合 OCR）
+        # 放大到標準高度（200像素高度最適合 OCR）
         h, w = gray.shape
-        target_height = 150
+        target_height = 200
         scale = target_height / h
         new_width = int(w * scale)
         resized = cv2.resize(gray, (new_width, target_height), interpolation=cv2.INTER_CUBIC)
         
         # 高斯模糊去噪
-        blurred = cv2.GaussianBlur(resized, (3, 3), 0)
+        blurred = cv2.GaussianBlur(resized, (2, 2), 0)
         
-        # Otsu's 二值化（自動找最佳門檻）
-        _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # 自適應二值化（對車牌效果更好）
+        binary = cv2.adaptiveThreshold(
+            blurred, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            11, 2
+        )
         
         # 形態學操作：去除小噪點、填補孔洞
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
@@ -1098,17 +1103,20 @@ def preprocess_for_ocr(img):
         sharpened = cv2.filter2D(cleaned, -1, sharpen_kernel)
         
         # 對比增強
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(6,6))
         enhanced = clahe.apply(sharpened)
         
-        return enhanced
+        # 最後再做一次銳利化
+        final = cv2.filter2D(enhanced, -1, sharpen_kernel)
+        
+        return final
         
     except Exception as e:
         logger.error(f'OCR 前處理失敗: {e}')
         return img
 
 def ocr_with_easyocr(image_path):
-    """使用 EasyOCR 辨識圖片中的文字（優化版）"""
+    """使用 EasyOCR + Tesseract 雙重辨識（加強版）"""
     try:
         import cv2
         import pytesseract
@@ -1121,32 +1129,51 @@ def ocr_with_easyocr(image_path):
         if img is None:
             return []
         
-        # 方法1: Tesseract OCR（對車牌效果好）
+        texts = []
+        
+        # 方法1: Tesseract OCR（增強配置）
         processed = preprocess_for_ocr(img)
         
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-            # Tesseract 需要黑白圖片
             cv2.imwrite(tmp.name, processed)
             
-            # Tesseract 辨識（使用 PSM 7 = 單行文字）
-            try:
-                tess_text = pytesseract.image_to_string(
-                    tmp.name, 
-                    lang='eng', 
-                    config='--psm 7 --oem 3'
-                ).strip()
-                if tess_text:
-                    logger.info(f'Tesseract 找到了: {tess_text}')
-            except Exception as e:
-                tess_text = ''
-                logger.error(f'Tesseract failed: {e}')
-            
-            # EasyOCR 備援
-            img_large = cv2.resize(img, (img.shape[1] * 2, img.shape[0] * 2), interpolation=cv2.INTER_CUBIC)
-            cv2.imwrite(tmp.name, img_large)
-            result = ocr.readtext(tmp.name, paragraph=False, detail=1)
+            # 嘗試多種 PSM 模式
+            for psm in [7, 8, 13]:  # 7=單行, 8=單字, 13= raw line
+                try:
+                    tess_text = pytesseract.image_to_string(
+                        tmp.name, 
+                        lang='eng', 
+                        config=f'--psm {psm} --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-'
+                    ).strip()
+                    if tess_text and len(tess_text) >= 4:
+                        texts.append({'text': tess_text, 'confidence': 0.85})
+                        logger.info(f'Tesseract PSM{psm} 找到了: {tess_text}')
+                        break
+                except:
+                    continue
             
             os.unlink(tmp.name)
+        
+        # 方法2: EasyOCR（放大圖片）
+        img_large = cv2.resize(img, (img.shape[1] * 3, img.shape[0] * 3), interpolation=cv2.INTER_CUBIC)
+        
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+            cv2.imwrite(tmp.name, img_large)
+            result = ocr.readtext(tmp.name, paragraph=False, detail=1)
+            os.unlink(tmp.name)
+        
+        # 處理 EasyOCR 結果
+        if result:
+            for line in result:
+                bbox, text, conf = line
+                if conf > 0.3 and len(text.strip()) >= 4:
+                    texts.append({'text': text.strip(), 'confidence': round(conf, 2)})
+        
+        logger.info(f'OCR 找到了 {len(texts)} 個候選: {[t["text"] for t in texts]}')
+        return texts
+    except Exception as e:
+        logger.error(f'OCR failed: {e}')
+        return []
         
         texts = []
         
@@ -1173,7 +1200,7 @@ def ocr_with_easyocr(image_path):
         return []
 
 def ocr_crop_with_easyocr(crop_img):
-    """對裁剪後的車牌區域使用 OCR 辨識（優化版）"""
+    """對裁剪後的車牌區域使用 OCR 辨識（加強版）"""
     try:
         import tempfile
         import os
@@ -1187,51 +1214,46 @@ def ocr_crop_with_easyocr(crop_img):
             scale = 20 / h
             crop_img = cv2.resize(crop_img, (int(w * scale), 20))
         
-        # 方法1: Tesseract OCR（對車牌效果好）
+        texts = []
+        
+        # 方法1: Tesseract OCR（增強配置）
         processed = preprocess_for_ocr(crop_img)
         
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
             cv2.imwrite(tmp.name, processed)
             
-            # Tesseract 辨識
-            try:
-                tess_text = pytesseract.image_to_string(
-                    tmp.name,
-                    lang='eng',
-                    config='--psm 7 --oem 3'
-                ).strip()
-                if tess_text:
-                    logger.info(f'Tesseract crop 找到了: {tess_text}')
-            except Exception as e:
-                tess_text = ''
-                logger.error(f'Tesseract crop failed: {e}')
-            
-            # EasyOCR 備援
-            img_large = cv2.resize(crop_img, (w * 4, h * 4), interpolation=cv2.INTER_CUBIC)
-            cv2.imwrite(tmp.name, img_large)
-            result = ocr.readtext(tmp.name, paragraph=False, detail=1)
-            
+            # 嘗試多種 PSM 模式和字元白名單
+            for psm in [7, 8, 13]:
+                try:
+                    tess_text = pytesseract.image_to_string(
+                        tmp.name,
+                        lang='eng',
+                        config=f'--psm {psm} --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-'
+                    ).strip()
+                    if tess_text and len(tess_text) >= 4:
+                        texts.append({'text': tess_text, 'confidence': 0.85})
+                        logger.info(f'Tesseract crop PSM{psm} 找到了: {tess_text}')
+                        break
+                except:
+                    continue
             os.unlink(tmp.name)
         
-        texts = []
+        # 方法2: EasyOCR（4倍放大）
+        img_large = cv2.resize(crop_img, (w * 4, h * 4), interpolation=cv2.INTER_CUBIC)
         
-        # Tesseract 結果
-        if tess_text:
-            texts.append({
-                'text': tess_text,
-                'confidence': 0.85
-            })
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+            cv2.imwrite(tmp.name, img_large)
+            result = ocr.readtext(tmp.name, paragraph=False, detail=1)
+            os.unlink(tmp.name)
         
-        # EasyOCR 結果
+        # 處理 EasyOCR 結果
         if result:
             for line in result:
                 bbox, text, conf = line
-                texts.append({
-                    'text': text.strip(),
-                    'confidence': round(conf, 2)
-                })
+                if conf > 0.25 and len(text.strip()) >= 4:
+                    texts.append({'text': text.strip(), 'confidence': round(conf, 2)})
         
-        logger.info(f'OCR crop 找到了 {len(texts)} 個文字: {[t["text"] for t in texts]}')
+        logger.info(f'OCR crop 找到了 {len(texts)} 個候選: {[t["text"] for t in texts]}')
         return texts
     except Exception as e:
         logger.error(f'OCR crop failed: {e}')
