@@ -15,7 +15,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from flask import (
     Flask, render_template, request, redirect,
-    url_for, session, jsonify, send_file, flash
+    url_for, session, jsonify, send_file, flash, make_response
 )
 from werkzeug.security import generate_password_hash
 import database as db
@@ -499,10 +499,10 @@ def api_records_export():
     
     csv_content = '\n'.join(csv_lines)
     
-    return csv_content, 200, {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': f'attachment; filename=records_{datetime.now().strftime("%Y%m%d")}.csv'
-    }
+    response = make_response(csv_content)
+    response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+    response.headers['Content-Disposition'] = f'attachment; filename=records_{datetime.now().strftime("%Y%m%d")}.csv'
+    return response
 
 @app.route('/api/billing/export')
 def api_billing_export():
@@ -519,10 +519,10 @@ def api_billing_export():
     
     csv_content = '\n'.join(csv_lines)
     
-    return csv_content, 200, {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': f'attachment; filename=billings_{datetime.now().strftime("%Y%m%d")}.csv'
-    }
+    response = make_response(csv_content)
+    response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+    response.headers['Content-Disposition'] = f'attachment; filename=billings_{datetime.now().strftime("%Y%m%d")}.csv'
+    return response
 
 @app.route('/api/owners/export')
 def api_owners_export():
@@ -539,10 +539,10 @@ def api_owners_export():
     
     csv_content = '\n'.join(csv_lines)
     
-    return csv_content, 200, {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': f'attachment; filename=owners_{datetime.now().strftime("%Y%m%d")}.csv'
-    }
+    response = make_response(csv_content)
+    response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+    response.headers['Content-Disposition'] = f'attachment; filename=owners_{datetime.now().strftime("%Y%m%d")}.csv'
+    return response
 
 # --- 手動開門 ---
 
@@ -1312,8 +1312,10 @@ def api_detect_plate():
         annotated_path = filepath.replace('.jpg', '_annotated.jpg').replace('.png', '_annotated.png')
         cv2.imwrite(annotated_path, img)
         logger.info(f'已繪製 YOLOv8 偵測框: {annotated_path}')
+        # 回傳相對路徑，讓前端可以存取
+        annotated_path = os.path.basename(annotated_path)
     else:
-        annotated_path = filepath
+        annotated_path = None
     
     # Step 6: 比對白名單
     matched_owner = None

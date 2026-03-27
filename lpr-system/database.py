@@ -367,12 +367,19 @@ def get_available_slots():
 
 def assign_slot_to_plate(slot_number, plate, owner_id=None):
     conn = get_db()
+    # 檢查車位是否已被占用
+    slot = conn.execute('SELECT * FROM parking_slots WHERE slot_number = ?', (slot_number,)).fetchone()
+    if slot and slot['status'] == 'occupied' and slot['plate']:
+        conn.close()
+        return False, '車位已被占用'
+    
     conn.execute(
         "UPDATE parking_slots SET status='occupied', plate=?, owner_id=? WHERE slot_number=?",
         (plate, owner_id, slot_number)
     )
     conn.commit()
     conn.close()
+    return True, '車位分配成功'
 
 def free_slot(slot_number):
     conn = get_db()
