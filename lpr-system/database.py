@@ -316,6 +316,12 @@ def get_parking_slots():
     conn.close()
     return [dict(row) for row in rows]
 
+def get_parking_slot(slot_id):
+    conn = get_db()
+    row = conn.execute('SELECT * FROM parking_slots WHERE id = ?', (slot_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
 def get_slot_by_number(slot_number):
     conn = get_db()
     row = conn.execute('SELECT * FROM parking_slots WHERE slot_number = ?', (slot_number,)).fetchone()
@@ -437,7 +443,22 @@ def get_active_sessions():
         ORDER BY ps.entry_time DESC
     ''').fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    
+    result = []
+    now = datetime.now()
+    for row in rows:
+        row = dict(row)
+        # 計算停車時長
+        if isinstance(row['entry_time'], str):
+            entry = datetime.strptime(row['entry_time'], '%Y-%m-%d %H:%M:%S')
+        else:
+            entry = row['entry_time']
+        duration = int((now - entry).total_seconds() / 60)
+        row['duration'] = f'{duration} 分鐘'
+        row['duration_minutes'] = duration
+        result.append(row)
+    
+    return result
 
 def get_parking_session_by_plate(plate):
     conn = get_db()

@@ -428,7 +428,14 @@ function showSlotActions(slotId, slotNumber, status) {
         `;
     } else if (status === 'occupied') {
         actions = `<button class="btn-small btn-success" onclick="doExit('${slotNumber}')">離場</button>`;
+    } else if (status === 'reserved') {
+        // 預訂狀態：可以取消預訂或讓車子進場
+        actions = `
+            <button class="btn-small btn-success" onclick="doEntry('${slotNumber}')">車子進場</button>
+            <button class="btn-small btn-warning" onclick="cancelReservation(${slotId})">取消預訂</button>
+        `;
     } else {
+        // disabled 或其他狀態
         actions = `<button class="btn-small btn-danger" onclick="deleteSlot(${slotId})">刪除</button>`;
     }
     
@@ -460,6 +467,21 @@ function deleteSlot(id) {
     if (!confirm('確定要刪除此車位？')) return;
     fetch(`/api/parking/slots/${id}`, { method: 'DELETE' })
         .then(() => { loadSlots(); loadSlotStats(); });
+}
+
+function cancelReservation(slotId) {
+    if (!confirm('確定要取消此車位的預訂？')) return;
+    fetch(`/api/parking/slots/${slotId}/cancel-reservation`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('✅ 已取消預訂');
+                loadSlots();
+                loadSlotStats();
+            } else {
+                alert('❌ 操作失敗：' + data.error);
+            }
+        });
 }
 
 function doEntry(slotNumber) {

@@ -1659,6 +1659,24 @@ def api_parking_slots_delete(slot_id):
     db.delete_parking_slot(slot_id)
     return jsonify({'success': True})
 
+@app.route('/api/parking/slots/<int:slot_id>/cancel-reservation', methods=['POST'])
+def api_parking_slots_cancel_reservation(slot_id):
+    """取消車位預訂"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    slot = db.get_parking_slot(slot_id)
+    if not slot:
+        return jsonify({'success': False, 'error': '找不到車位'})
+    
+    if slot['status'] != 'reserved':
+        return jsonify({'success': False, 'error': '此車位不是預訂狀態'})
+    
+    # 將車位改為可用狀態，清空車牌和owner_id
+    db.update_parking_slot(slot_id, 'available', None, None)
+    
+    return jsonify({'success': True, 'message': '已取消預訂'})
+
 @app.route('/api/parking/sessions/active')
 def api_parking_sessions_active():
     sessions = db.get_active_sessions()
