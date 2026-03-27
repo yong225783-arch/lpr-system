@@ -20,6 +20,42 @@ from flask import (
 from werkzeug.security import generate_password_hash
 import database as db
 
+# ============ 登入 Rate Limiting ============
+
+login_attempts = {}  # {IP: (count, last_attempt_time)}
+
+def check_login_rate_limit(ip):
+    """檢查 IP 是否被限制"""
+    now = time.time()
+    if ip in login_attempts:
+        count, last_time = login_attempts[ip]
+        # 超過 5 分鐘重置
+        if now - last_time > 300:
+            login_attempts[ip] = (0, now)
+            return True
+        # 5 分鐘內超過 5 次嘗試
+        if count >= 5:
+            remaining = int(300 - (now - last_time))
+            return False, remaining
+    return True
+
+def record_failed_login(ip):
+    """記錄失敗的登入嘗試"""
+    now = time.time()
+    if ip in login_attempts:
+        count, last_time = login_attempts[ip]
+        if now - last_time > 300:
+            login_attempts[ip] = (1, now)
+        else:
+            login_attempts[ip] = (count + 1, now)
+    else:
+        login_attempts[ip] = (1, now)
+
+def clear_login_attempts(ip):
+    """清除登入嘗試記錄（成功後）"""
+    if ip in login_attempts:
+        del login_attempts[ip]
+
 # ============ 資料庫備份 ============
 
 def backup_database():
@@ -60,7 +96,7 @@ def restore_database(backup_file):
 # ============ Flask App ============
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'lpr-secret-key-change-in-production')
+app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
 
 logging.basicConfig(
@@ -136,7 +172,7 @@ class PlateRecognizer:
         plate_contour = self.find_plate_contour(edged)
 
         if plate_contour is not None:
-            mask = np.zeros_like(gray)
+            mask = np.zeros_like(edged)
             cv2.drawContours(mask, [plate_contour], 0, 255, -1)
             cv2.drawContours(frame, [plate_contour], -1, (0, 255, 0), 3)
 
@@ -150,17 +186,16 @@ class PlateRecognizer:
         cv2.imwrite(filepath, frame)
         return filepath
 
-    def capture_and_recognize(self):
+    def capture_and_recognize(self, mode='in'):
         """擷取並辨識一次"""
-        if not self.camera or not self.camera.isOpened():
+        camera = self.get_camera(mode)
+        if not camera or not camera.isOpened():
             return None
 
-        ret, frame = self.camera.read()
+        ret, frame = camera.read()
         if not ret:
             return None
 
-        # 這裡需要 EasyOCR，見下面章節說明
-        # 示意：使用 OCR 辨識
         return frame
 
     def start_continuous(self, callback):
@@ -312,15 +347,25 @@ def index():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    # 檢查 rate limit
+    client_ip = request.remote_addr
+    rate_check = check_login_rate_limit(client_ip)
+    if not rate_check:
+        remaining = rate_check[1] if isinstance(rate_check, tuple) else 0
+        flash(f'登入嘗試過多，請等待 {remaining} 秒後再試', 'error')
+        return render_template('login.html')
+    
     if request.method == 'POST':
         username = request.form.get('username', '')
         password = request.form.get('password', '')
         user = db.verify_user(username, password)
         if user:
+            clear_login_attempts(client_ip)  # 成功登入，清除記錄
             session['user_id'] = user['id']
             session['username'] = user['username']
             session['role'] = user['role']
             return redirect(url_for('index'))
+        record_failed_login(client_ip)  # 失敗記錄
         flash('帳號或密碼錯誤', 'error')
     return render_template('login.html')
 
@@ -945,7 +990,7 @@ def preprocess_for_ocr(img):
         logger.error(f'OCR 前處理失敗: {e}')
         return img
 
-def ocr_with_paddleocr(image_path):
+def ocr_with_easyocr(image_path):
     """使用 EasyOCR 辨識圖片中的文字（優化版）"""
     try:
         import cv2
@@ -1010,7 +1055,7 @@ def ocr_with_paddleocr(image_path):
         logger.error(f'OCR failed: {e}')
         return []
 
-def ocr_crop_with_paddleocr(crop_img):
+def ocr_crop_with_easyocr(crop_img):
     """對裁剪後的車牌區域使用 OCR 辨識（優化版）"""
     try:
         import tempfile
@@ -1130,12 +1175,24 @@ def filter_plate_text(ocr_texts):
     
     # 台灣車牌格式
     plate_patterns = [
-        r'[A-Z]{2,3}-[0-9]{3,4}',   # ABC-1234, AB-1234
-        r'[0-9]{2}-[A-Z]{2,3}',       # 12-ABC
+        # 標準格式
+        r'[A-Z]{2,3}-[0-9]{3,4}',   # ABC-1234, AB-1234, ABC-123
+        r'[0-9]{2}-[A-Z]{2,3}',       # 12-ABC, 123-ABC
         r'[0-9]{4}-[A-Z]{2,3}',      # 5799-KE, 1234-ABC (4位數-2/3字母)
-        r'[A-Z]{2,3}[0-9]{4}',        # ABC1234
-        r'[0-9][A-Z0-9]{5}',          # 1ABC23
-        r'[0-9]{4}[A-Z]{2,3}',        # 5799KE (4位數2字母，無dash)
+        r'[A-Z]{2,3}[0-9]{4}',        # ABC1234, AB1234
+        r'[0-9][A-Z0-9]{5}',          # 1ABC23, 12ABC3
+        r'[0-9]{4}[A-Z]{2,3}',        # 5799KE, 1234AB (4位數2字母，無dash)
+        
+        # 新式車牌（2012年後）
+        r'[A-Z]{2}-[0-9]{4}',         # AB-1234 (新式2碼-4碼)
+        r'[A-Z]{3}-[0-9]{3}',         # ABC-123 (新式3碼-3碼)
+        
+        # 大型車
+        r'[0-9]{3}-[A-Z]{3}',         # 123-ABC (大型車)
+        
+        # 特殊車牌
+        r'[0-9]{3}[A-Z]{3}',         # 123ABC (無dash大型車)
+        r'[A-Z][0-9]{4}[A-Z]',       # A1234B (混合)
     ]
     
     # 排除包含中文的文字
@@ -1208,7 +1265,7 @@ def api_detect_plate():
         # 應用透視變換
         transformed = apply_perspective_transform(pc['crop'])
         # EasyOCR 辨識
-        ocr_texts = ocr_crop_with_paddleocr(transformed)
+        ocr_texts = ocr_crop_with_easyocr(transformed)
         plates = filter_plate_text(ocr_texts)
         plate_results.append({
             'vehicle_type': pc['vehicle_type'],
@@ -1221,7 +1278,7 @@ def api_detect_plate():
         logger.info(f'  {pc["vehicle_type"]} 區域 EasyOCR: {plates}')
     
     # Step 3: 對全圖也做一次 EasyOCR（作為備援）
-    full_ocr_texts = ocr_with_paddleocr(filepath)
+    full_ocr_texts = ocr_with_easyocr(filepath)
     all_ocr_texts.extend(full_ocr_texts)
     full_plates = filter_plate_text(full_ocr_texts)
     
