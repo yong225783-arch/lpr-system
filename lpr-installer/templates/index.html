@@ -1,0 +1,429 @@
+{% extends "base.html" %}
+{% block title %}首頁 - 車牌辨識系統{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <h1>📊 即時狀態</h1>
+
+    <!-- IP Cam 影像區 -->
+    <div class="section" style="margin-bottom:20px;">
+        <h2>📹 即時影像</h2>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+            <!-- 進口 -->
+            <div style="background:#e8f5e9; border-radius:10px; padding:15px;">
+                <h3 style="color:#2e7d32; margin-top:0;">🚗 進口</h3>
+                <div id="videoContainerIn" style="position:relative; background:#1a1a1a; border-radius:10px; overflow:hidden; min-height:200px;">
+                    <img id="videoFeedIn" src="/video_feed.jpg/in" style="width:100%; max-width:640px; display:block; margin:0 auto;" 
+                         onerror="handleVideoError(this, 'in')">
+                    <div id="videoPlaceholderIn" style="display:none; padding:60px; text-align:center; color:#666;">
+                        <div style="font-size:60px; margin-bottom:15px;">📷</div>
+                        <p style="font-size:18px; margin-bottom:10px;">攝影機未連接</p>
+                    </div>
+                    <div style="position:absolute; top:10px; right:10px; background:rgba(0,0,0,0.6); color:white; padding:5px 10px; border-radius:5px; font-size:12px;">
+                        <span id="cameraStatusIn">● 連線中</span>
+                    </div>
+                </div>
+            </div>
+            <!-- 出口 -->
+            <div style="background:#fff3e0; border-radius:10px; padding:15px;">
+                <h3 style="color:#e65100; margin-top:0;">🚪 出口</h3>
+                <div id="videoContainerOut" style="position:relative; background:#1a1a1a; border-radius:10px; overflow:hidden; min-height:200px;">
+                    <img id="videoFeedOut" src="/video_feed.jpg/out" style="width:100%; max-width:640px; display:block; margin:0 auto;" 
+                         onerror="handleVideoError(this, 'out')">
+                    <div id="videoPlaceholderOut" style="display:none; padding:60px; text-align:center; color:#666;">
+                        <div style="font-size:60px; margin-bottom:15px;">📷</div>
+                        <p style="font-size:18px; margin-bottom:10px;">攝影機未連接</p>
+                    </div>
+                    <div style="position:absolute; top:10px; right:10px; background:rgba(0,0,0,0.6); color:white; padding:5px 10px; border-radius:5px; font-size:12px;">
+                        <span id="cameraStatusOut">● 連線中</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 辨識結果顯示區 -->
+    <div class="section" id="ocr-result-section" style="display:none; margin-bottom:20px; border: 2px solid #28a745; border-radius: 10px; padding: 20px; background: #f0fff4;">
+        <h2 style="margin-top:0; color:#155724;">🔍 OCR 辨識結果</h2>
+        <div id="ocr-result-content">
+            <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
+                <div>
+                    <div style="font-size:14px; color:#666; margin-bottom:5px;">偵測到的車牌</div>
+                    <div id="ocr-plate" style="font-size:32px; font-weight:bold; color:#28a745; font-family:monospace;">-</div>
+                </div>
+                <div>
+                    <div style="font-size:14px; color:#666; margin-bottom:5px;">OCR 信心度</div>
+                    <div id="ocr-confidence" style="font-size:24px; font-weight:bold; color:#155724;">-</div>
+                </div>
+                <div>
+                    <div style="font-size:14px; color:#666; margin-bottom:5px;">比對狀態</div>
+                    <div id="ocr-match" style="font-size:20px; font-weight:bold;">-</div>
+                </div>
+                <div>
+                    <div style="font-size:14px; color:#666; margin-bottom:5px;">車主</div>
+                    <div id="ocr-owner" style="font-size:18px; font-weight:bold; color:#333;">-</div>
+                </div>
+                <div>
+                    <div style="font-size:14px; color:#666; margin-bottom:5px;">YOLOv8 偵測</div>
+                    <div id="ocr-vehicle" style="font-size:16px; font-weight:bold; color:#6f42c1;">-</div>
+                </div>
+            </div>
+            <div id="ocr-raw-text" style="margin-top:15px; padding:10px; background:#fff; border-radius:5px; font-size:12px; color:#666;"></div>
+            <div id="ocr-annotated-section" style="margin-top:15px; display:none;">
+                <div style="font-size:14px; color:#666; margin-bottom:5px;">YOLOv8 偵測框</div>
+                <img id="ocr-annotated-img" style="max-width:100%; border:2px solid #28a745; border-radius:5px;" crossorigin="anonymous">
+            </div>
+        </div>
+    </div>
+
+    <!-- 功能按鈕區 -->
+    <div class="stats-grid" style="margin-bottom:20px;">
+        <div class="stat-card stat-card-action">
+            <div class="stat-icon">🔑</div>
+            <div class="stat-info">
+                <button id="btnManualOpen" class="btn-primary btn-large">
+                    手動開門
+                </button>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">📷</div>
+            <div class="stat-info">
+                <button id="btnCapture" class="btn-secondary btn-large">
+                    截圖拍照
+                </button>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">📤</div>
+            <div class="stat-info">
+                <button id="btnUpload" class="btn-secondary btn-large">
+                    上傳測試
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 上傳測試區塊 -->
+    <div class="section" id="upload-section" style="display:none;">
+        <h2>📤 圖片上傳測試</h2>
+        <form id="upload-form" enctype="multipart/form-data">
+            <div class="upload-area">
+                <input type="file" id="upload-image" name="image" accept="image/*" required>
+                <br><br>
+                <img id="upload-preview" style="max-width:300px; display:none; border:1px solid #ddd; border-radius:5px;">
+                <br><br>
+                <label>手動車牌（用於比對白名單）：</label><br><br>
+                <input type="text" id="upload-plate" name="manual_plate" placeholder="例如：ABC-1234" style="padding:8px; font-size:14px; width:200px;">
+            </div>
+            <br>
+            <button type="submit" class="btn-primary">上傳並測試</button>
+            <button type="button" class="btn-secondary" onclick="document.getElementById('upload-section').style.display='none'">關閉</button>
+        </form>
+        <div id="upload-result" style="margin-top:20px;"></div>
+    </div>
+
+    <div class="section">
+        <h2>📋 最近開門紀錄</h2>
+        <div class="table-responsive">
+            <table class="table" id="records-table">
+                <thead>
+                    <tr>
+                        <th>時間</th>
+                        <th>車牌</th>
+                        <th>車主</th>
+                        <th>結果</th>
+                        <th>備註</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in records %}
+                    <tr class="{% if r.result == '已授權' %}row-success{% elif r.result == '未授權' %}row-danger{% endif %}">
+                        <td>{{ r.created_at }}</td>
+                        <td><strong>{{ r.plate }}</strong></td>
+                        <td>{{ r.owner_name or '-' }}</td>
+                        <td>
+                            <span class="badge badge-{% if r.result == '已授權' %}success{% elif r.result == '未授權' %}danger{% else %}info{% endif %}">
+                                {{ r.result }}
+                            </span>
+                        </td>
+                        <td>{{ r.note or '' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="text-right" style="margin-top: 1rem;">
+            <a href="{{ url_for('records') }}" class="btn-link">查看更多 →</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 即時影像自動更新（支援雙攝影機）
+let videoFeedIn = document.getElementById('videoFeedIn');
+let videoFeedOut = document.getElementById('videoFeedOut');
+let cameraStatusIn = document.getElementById('cameraStatusIn');
+let cameraStatusOut = document.getElementById('cameraStatusOut');
+let feedErrorCountIn = 0;
+let feedErrorCountOut = 0;
+let refreshIntervalIn = null;
+let refreshIntervalOut = null;
+
+function handleVideoError(img, mode) {
+    img.style.display = 'none';
+    const placeholder = document.getElementById('videoPlaceholder' + mode.toUpperCase());
+    if (placeholder) placeholder.style.display = 'block';
+    const status = mode === 'in' ? cameraStatusIn : cameraStatusOut;
+    if (status) {
+        status.textContent = '● 攝影機未連接';
+        status.style.color = '#dc3545';
+    }
+    // 停止刷新
+    const interval = mode === 'in' ? refreshIntervalIn : refreshIntervalOut;
+    if (interval) {
+        clearInterval(interval);
+        if (mode === 'in') refreshIntervalIn = null;
+        else refreshIntervalOut = null;
+    }
+}
+
+function refreshVideo(mode) {
+    const videoFeed = mode === 'in' ? videoFeedIn : videoFeedOut;
+    if (videoFeed && videoFeed.style.display !== 'none' && videoFeed.src) {
+        const timestamp = new Date().getTime();
+        videoFeed.src = '/video_feed.jpg/' + mode + '?' + timestamp;
+    }
+}
+
+// 檢查攝影機狀態
+async function checkCamera(mode) {
+    try {
+        const res = await fetch('/api/camera_status/' + mode);
+        const data = await res.json();
+        const cameraAvailable = data.available;
+        const status = mode === 'in' ? cameraStatusIn : cameraStatusOut;
+        const videoFeed = mode === 'in' ? videoFeedIn : videoFeedOut;
+        
+        if (!cameraAvailable) {
+            handleVideoError(videoFeed, mode);
+            return;
+        }
+        
+        // 相機可用，開始刷新
+        if (status) {
+            status.textContent = '● 直播中';
+            status.style.color = '#28a745';
+        }
+        
+        const interval = setInterval(() => refreshVideo(mode), 200);
+        if (mode === 'in') refreshIntervalIn = interval;
+        else refreshIntervalOut = interval;
+    } catch (e) {
+        const videoFeed = mode === 'in' ? videoFeedIn : videoFeedOut;
+        handleVideoError(videoFeed, mode);
+    }
+}
+
+// 初始化進口攝影機
+if (videoFeedIn) {
+    videoFeedIn.onload = function() {
+        feedErrorCountIn = 0;
+        if (cameraStatusIn) {
+            cameraStatusIn.textContent = '● 直播中';
+            cameraStatusIn.style.color = '#28a745';
+        }
+    };
+    videoFeedIn.onerror = function() {
+        feedErrorCountIn++;
+        if (feedErrorCountIn >= 3) {
+            handleVideoError(videoFeedIn, 'in');
+        }
+    };
+    checkCamera('in');
+}
+
+// 初始化出口攝影機
+if (videoFeedOut) {
+    videoFeedOut.onload = function() {
+        feedErrorCountOut = 0;
+        if (cameraStatusOut) {
+            cameraStatusOut.textContent = '● 直播中';
+            cameraStatusOut.style.color = '#28a745';
+        }
+    };
+    videoFeedOut.onerror = function() {
+        feedErrorCountOut++;
+        if (feedErrorCountOut >= 3) {
+            handleVideoError(videoFeedOut, 'out');
+        }
+    };
+    checkCamera('out');
+}
+
+// 自動刷新記錄
+async function refreshRecords() {
+    try {
+        const res = await fetch('/api/records/recent?limit=10');
+        const data = await res.json();
+        const tbody = document.querySelector('#records-table tbody');
+        if (tbody && data.records) {
+            tbody.innerHTML = data.records.map(r => {
+                const badgeClass = r.result === '已授權' ? 'success' : (r.result === '未授權' ? 'danger' : 'info');
+                const rowClass = r.result === '已授權' ? 'row-success' : (r.result === '未授權' ? 'row-danger' : '');
+                return `<tr class="${rowClass}">
+                    <td>${r.created_at}</td>
+                    <td><strong>${r.plate}</strong></td>
+                    <td>${r.owner_name || '-'}</td>
+                    <td><span class="badge badge-${badgeClass}">${r.result}</span></td>
+                    <td>${r.note || ''}</td>
+                </tr>`;
+            }).join('');
+        }
+    } catch (e) {
+        console.error('刷新記錄失敗:', e);
+    }
+}
+
+// 每 5 秒自動刷新記錄
+setInterval(refreshRecords, 5000);
+refreshRecords();
+
+document.getElementById('btnManualOpen')?.addEventListener('click', async () => {
+    const note = prompt('開門備註（選填）:', '');
+    const res = await fetch('/open', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: `note=${encodeURIComponent(note || '')}`
+    });
+    const data = await res.json();
+    alert(data.success ? '✅ 開門成功！' : '❌ 開門失敗：' + (data.message || '未知錯誤'));
+});
+
+document.getElementById('btnCapture')?.addEventListener('click', async () => {
+    const res = await fetch('/capture');
+    const data = await res.json();
+    if (data.success) {
+        alert('📷 拍照成功！\n檔案：' + data.image);
+        refreshVideo();  // 更新影像
+    } else {
+        alert('❌ 拍照失敗');
+    }
+});
+
+document.getElementById('btnUpload')?.addEventListener('click', () => {
+    const section = document.getElementById('upload-section');
+    section.style.display = section.style.display === 'none' ? 'block' : 'none';
+});
+
+document.getElementById('upload-image')?.addEventListener('change', function(e) {
+    if (this.files && this.files[0]) {
+        const reader = new FileReader();
+        reader.onload = function(ev) {
+            const preview = document.getElementById('upload-preview');
+            preview.src = ev.target.result;
+            preview.style.display = 'block';
+        };
+        reader.readAsDataURL(this.files[0]);
+    }
+});
+
+document.getElementById('upload-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const resultDiv = document.getElementById('upload-result');
+    
+    // 顯示載入中
+    document.getElementById('ocr-result-section').style.display = 'block';
+    document.getElementById('ocr-plate').textContent = '🔄 辨識中...';
+    document.getElementById('ocr-confidence').textContent = '-';
+    document.getElementById('ocr-match').textContent = '處理中';
+    document.getElementById('ocr-match').style.color = '#666';
+    document.getElementById('ocr-owner').textContent = '-';
+    document.getElementById('ocr-raw-text').textContent = '';
+    resultDiv.innerHTML = '<p style="color:#666;">🔍 使用 EasyOCR 本地辨識...</p>';
+    
+    try {
+        // 偵測車牌區域 + OCR
+        const detectRes = await fetch('/api/detect_plate', {
+            method: 'POST',
+            body: formData
+        });
+        const detectData = await detectRes.json();
+        
+        // 更新 OCR 結果顯示
+        if (detectData.all_plates && detectData.all_plates.length > 0) {
+            const bestPlate = detectData.best_plate || detectData.all_plates[0];
+            document.getElementById('ocr-plate').textContent = bestPlate;
+            
+            // 計算平均信心度
+            const avgConf = detectData.ocr_confidence || 85;
+            document.getElementById('ocr-confidence').textContent = avgConf + '%';
+            
+            // 顯示 YOLOv8 車牌偵測結果
+            if (detectData.yolo_detected > 0 && detectData.plate_results && detectData.plate_results.length > 0) {
+                const vr = detectData.plate_results[0];
+                if (vr) {
+                    document.getElementById('ocr-vehicle').textContent = `${vr.vehicle_type} (${(vr.vehicle_conf * 100).toFixed(0)}%)`;
+                }
+            } else {
+                document.getElementById('ocr-vehicle').textContent = '未偵測';
+            }
+            
+            // 顯示原始辨識文字
+            if (detectData.ocr_texts && detectData.ocr_texts.length > 0) {
+                const rawTexts = detectData.ocr_texts.map(t => `${t.text} (${Math.round(t.confidence * 100)}%)`).join(', ');
+                document.getElementById('ocr-raw-text').textContent = '原始文字: ' + rawTexts;
+            }
+            
+            // 顯示 YOLOv8 偵測框圖片
+            if (detectData.annotated_image) {
+                document.getElementById('ocr-annotated-section').style.display = 'block';
+                document.getElementById('ocr-annotated-img').src = '/' + detectData.annotated_image + '?t=' + new Date().getTime();
+            } else {
+                document.getElementById('ocr-annotated-section').style.display = 'none';
+            }
+        } else {
+            document.getElementById('ocr-plate').textContent = '未偵測到';
+            document.getElementById('ocr-confidence').textContent = '-';
+            document.getElementById('ocr-vehicle').textContent = '-';
+        }
+        
+        // 顯示比對結果
+        if (detectData.allowed && detectData.matched_plate) {
+            document.getElementById('ocr-match').textContent = '✅ 已開門';
+            document.getElementById('ocr-match').style.color = '#28a745';
+            document.getElementById('ocr-owner').textContent = detectData.matched_owner || '-';
+            resultDiv.innerHTML = '<div style="padding:15px; border-radius:8px; background:#d4edda; color:#155724;"><strong>✅ ' + detectData.message + '</strong></div>';
+            refreshRecords();
+        } else if (detectData.all_plates && detectData.all_plates.length > 0) {
+            document.getElementById('ocr-match').textContent = '⚠️ 不在白名單';
+            document.getElementById('ocr-match').style.color = '#ffc107';
+            document.getElementById('ocr-owner').textContent = '-';
+            
+            // 顯示 YOLOv8 偵測結果
+            let yoloInfo = '';
+            if (detectData.yolo_detected > 0 && detectData.plate_results && detectData.plate_results.length > 0) {
+                const vr = detectData.plate_results[0];
+                if (vr) {
+                    yoloInfo = `<br><small>🚗 YOLOv8 偵測到: ${vr.vehicle_type} (${(vr.vehicle_conf * 100).toFixed(0)}%)</small>`;
+                }
+            }
+            
+            resultDiv.innerHTML = '<div style="padding:15px; border-radius:8px; background:#fff3cd; color:#856404;"><strong>⚠️ ' + detectData.message + '</strong>' + yoloInfo + '</div>';
+        } else {
+            document.getElementById('ocr-match').textContent = '❌ 無法辨識';
+            document.getElementById('ocr-match').style.color = '#dc3545';
+            resultDiv.innerHTML = '<div style="padding:15px; border-radius:8px; background:#f8d7da; color:#721c24;"><strong>❌ ' + detectData.message + '</strong></div>';
+        }
+        
+    } catch (err) {
+        document.getElementById('ocr-match').textContent = '❌ 錯誤';
+        document.getElementById('ocr-match').style.color = '#dc3545';
+        resultDiv.innerHTML = '<div style="padding:15px; color:#dc3545;">❌ 上傳失敗：' + err.message + '</div>';
+    }
+});
+</script>
+{% endblock %}

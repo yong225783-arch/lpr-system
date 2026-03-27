@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}系統設定 - 車牌辨識系統{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>⚙️ 系統設定</h1>
+</div>
+
+<div class="settings-grid">
+    <div class="settings-card">
+        <h2>📷 攝影機設定（進出口各一台）</h2>
+        <form method="POST" action="{{ url_for('settings_save') }}">
+            <input type="hidden" name="section" value="camera">
+            
+            <div style="background: #e8f5e9; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                <h3 style="margin: 0 0 0.5rem 0; color: #2e7d32;">🚗 進口攝影機</h3>
+                <div class="form-group">
+                    <label>RTSP URL</label>
+                    <input type="text" name="camera_in_url" value="{{ camera_in_url or '' }}" placeholder="rtsp://admin:password@192.168.1.100:554/stream1" style="font-family: monospace;">
+                    <small>留空則使用 USB Webcam</small>
+                </div>
+            </div>
+            
+            <div style="background: #fff3e0; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                <h3 style="margin: 0 0 0.5rem 0; color: #e65100;">🚪 出口攝影機</h3>
+                <div class="form-group">
+                    <label>RTSP URL</label>
+                    <input type="text" name="camera_out_url" value="{{ camera_out_url or '' }}" placeholder="rtsp://admin:password@192.168.1.101:554/stream1" style="font-family: monospace;">
+                    <small>留空則使用 USB Webcam</small>
+                </div>
+            </div>
+
+            <button type="submit" class="btn-primary">儲存設定</button>
+        </form>
+    </div>
+
+    <div class="settings-card">
+        <h2>🔌 繼電器設定</h2>
+        <form method="POST" action="{{ url_for('settings_save') }}">
+            <input type="hidden" name="section" value="relay">
+            <div class="form-group">
+                <label>COM Port（Windows）</label>
+                <input type="text" name="relay_port" value="{{ relay_port or '' }}" placeholder="COM3">
+                <small>裝置管理員 → 連接埠 中查看</small>
+            </div>
+            <div class="form-group">
+                <label>開門信號持續時間（秒）</label>
+                <input type="number" name="open_duration" value="{{ open_duration or 1.5 }}" min="0.5" max="10" step="0.5">
+            </div>
+            <button type="submit" class="btn-primary">儲存設定</button>
+        </form>
+
+        <div style="margin-top: 1.5rem; padding: 1rem; background: #f0fdf4; border-radius: 8px;">
+            <h3>🔑 測試開門</h3>
+            <p style="font-size: 0.9rem; color: #64748b;">按下測試按鈕，繼電器會發送一次開門信號</p>
+            <button id="btnTestRelay" class="btn-secondary" onclick="testRelay()">測試繼電器</button>
+            <span id="relayResult" style="margin-left: 1rem;"></span>
+        </div>
+    </div>
+
+    <div class="settings-card">
+        <h2>🔐 帳號設定</h2>
+        <form method="POST" action="{{ url_for('settings_save') }}">
+            <input type="hidden" name="section" value="password">
+            <div class="form-group">
+                <label>新密碼</label>
+                <input type="password" name="new_password" placeholder="留空則不修改">
+            </div>
+            <div class="form-group">
+                <label>確認新密碼</label>
+                <input type="password" name="confirm_password" placeholder="再次輸入新密碼">
+            </div>
+            <button type="submit" class="btn-primary">修改密碼</button>
+        </form>
+    </div>
+
+    <div class="settings-card">
+        <h2>🎯 車牌辨識微調</h2>
+        <form method="POST" action="{{ url_for('settings_save') }}">
+            <input type="hidden" name="section" value="lpr_tuning">
+            
+            <div class="form-group">
+                <label>YOLOv8 偵測信心度</label>
+                <input type="number" name="yolo_conf" value="{{ yolo_conf or 0.5 }}" min="0.1" max="1.0" step="0.05">
+                <small>較低值會偵測更多物體，但可能增加誤判（預設 0.5）</small>
+            </div>
+            
+            <div class="form-group">
+                <label>OCR 信心度門檻</label>
+                <input type="number" name="ocr_conf" value="{{ ocr_conf or 0.3 }}" min="0.1" max="1.0" step="0.05">
+                <small>較低值會接受更多辨識結果（預設 0.3）</small>
+            </div>
+            
+            <div class="form-group">
+                <label>圖片放大倍數</label>
+                <input type="number" name="image_zoom" value="{{ image_zoom or 2 }}" min="1" max="4" step="0.5">
+                <small>車牌區域放大倍數，越大 OCR 越容易讀取（預設 2）</small>
+            </div>
+            
+            <div class="form-group">
+                <label>同車牌辨識冷卻時間（秒）</label>
+                <input type="number" name="cooldown" value="{{ cooldown or 5 }}" min="1" max="60" step="1">
+                <small>同一車牌短時間內不再重複觸發（預設 5 秒）</small>
+            </div>
+            
+            <div class="form-group">
+                <label>OCR 引擎</label>
+                <select name="ocr_engine">
+                    <option value="easyocr" {% if ocr_engine == 'easyocr' %}selected{% endif %}>EasyOCR（推薦）</option>
+                    <option value="tesseract" {% if ocr_engine == 'tesseract' %}selected{% endif %}>Tesseract</option>
+                    <option value="both" {% if ocr_engine == 'both' %}selected{% endif %}>兩者都用（最準）</option>
+                </select>
+                <small>切換 OCR 引擎看看哪個對你的車牌比較準</small>
+            </div>
+
+            <button type="submit" class="btn-primary">儲存微調設定</button>
+        </form>
+    </div>
+
+    <div class="settings-card">
+        <h2>📊 系統資訊</h2>
+        <div class="info-list">
+            <div class="info-item">
+                <span class="info-label">系統狀態</span>
+                <span class="info-value">✅ 正常運行中</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">已登錄車主</span>
+                <span class="info-value">{{ owners_count }} 位</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">今日開門次數</span>
+                <span class="info-value">{{ today_count }} 次</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">資料庫</span>
+                <span class="info-value">SQLite（自動儲存）</span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleCameraFields() {
+    const type = document.getElementById('cameraType').value;
+    document.getElementById('webcamField').style.display = type === 'webcam' ? 'block' : 'none';
+    document.getElementById('rtspField').style.display = type === 'rtsp' ? 'block' : 'none';
+}
+
+async function testCamera() {
+    const btn = document.getElementById('btnTestCamera');
+    const result = document.getElementById('testResult');
+    btn.disabled = true;
+    result.textContent = '測試中...';
+    try {
+        const res = await fetch('/api/test_camera');
+        const data = await res.json();
+        result.textContent = data.success ? '✅ 連接成功！' : '❌ 失敗：' + data.message;
+    } catch(e) {
+        result.textContent = '❌ 連接失敗';
+    }
+    btn.disabled = false;
+}
+
+async function testRelay() {
+    const btn = document.getElementById('btnTestRelay');
+    const result = document.getElementById('relayResult');
+    btn.disabled = true;
+    result.textContent = '測試中...';
+    try {
+        const res = await fetch('/api/test_relay', {method: 'POST'});
+        const data = await res.json();
+        result.textContent = data.success ? '✅ 繼電器運作正常！' : '❌ 失敗：' + data.message;
+    } catch(e) {
+        result.textContent = '❌ 測試失敗';
+    }
+    btn.disabled = false;
+}
+</script>
+{% endblock %}

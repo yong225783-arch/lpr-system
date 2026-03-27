@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}登入 - 車牌辨識系統{% endblock %}
+
+{% block content %}
+<div class="login-wrapper">
+    <div class="login-card">
+        <div class="login-header">
+            <div class="login-icon">🚗</div>
+            <h1>車牌辨識系統</h1>
+            <p>請登入以繼續</p>
+        </div>
+        <form method="POST" class="login-form">
+            <div class="form-group">
+                <label>帳號</label>
+                <input type="text" name="username" required autofocus placeholder="admin">
+            </div>
+            <div class="form-group">
+                <label>密碼</label>
+                <input type="password" name="password" required placeholder="••••••••">
+            </div>
+            <button type="submit" class="btn-primary btn-block">登入</button>
+        </form>
+        <div class="login-footer">
+            <small>預設帳號：admin / 密碼：admin123</small>
+        </div>
+    </div>
+</div>
+{% endblock %}
