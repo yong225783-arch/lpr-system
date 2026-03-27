@@ -947,20 +947,20 @@ def api_detect_plate():
     all_ocr_texts.extend(full_ocr_texts)
     full_plates = filter_plate_text(full_ocr_texts)
     
-    # Step 3.5: 如果 EasyOCR 沒找到，嘗試 Tesseract OCR
-    if not combined_plates:
-        logger.info('EasyOCR 未找到車牌，嘗試 Tesseract OCR...')
-        tess_texts = ocr_with_tesseract(filepath)
-        tess_plates = filter_plate_text(tess_texts)
-        all_ocr_texts.extend(tess_texts)
-        full_plates.extend(tess_plates)
-        logger.info(f'Tesseract OCR 找到了: {tess_plates}')
-    
     # Step 4: 合併所有偵測到的車牌
     all_possible_plates = filter_plate_text(all_ocr_texts)
     
     # 合併車牌區域和全圖的結果
     combined_plates = all_possible_plates + full_plates
+    
+    # Step 4.5: 如果 EasyOCR 沒找到，嘗試 Tesseract OCR
+    if not combined_plates:
+        logger.info('EasyOCR 未找到車牌，嘗試 Tesseract OCR...')
+        tess_texts = ocr_with_tesseract(filepath)
+        tess_plates = filter_plate_text(tess_texts)
+        if tess_plates:
+            combined_plates = tess_plates
+            logger.info(f'Tesseract OCR 找到了: {tess_plates}')
     
     # Step 5: 繪製 YOLOv8 偵測框（現在有車牌號碼了）
     if plate_crops:
