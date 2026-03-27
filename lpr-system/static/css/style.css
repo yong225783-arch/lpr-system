@@ -140,6 +140,19 @@ body {
 }
 .btn-success:hover { background: #218838; }
 
+.btn-warning {
+    background: #ffc107;
+    color: #000;
+    border: none;
+    padding: 0.6rem 1.25rem;
+    border-radius: 6px;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+}
+.btn-warning:hover { background: #e0a800; }
+
 .btn-danger {
     background: var(--danger);
     color: var(--white);

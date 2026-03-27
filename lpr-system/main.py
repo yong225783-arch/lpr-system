@@ -1727,6 +1727,77 @@ def api_parking_exit():
         'duration': duration if session_data else 0
     })
 
+@app.route('/api/parking/block', methods=['POST'])
+def api_parking_block():
+    """禁止車輛離場（將車牌加入黑名單並釋放車位）"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    data = request.json
+    
+    plate = data.get('plate', '').upper()
+    reason = data.get('reason', '')
+    
+    if not plate:
+        return jsonify({'success': False, 'error': '請提供車牌'})
+    
+    # 取得車輛資訊
+    session_data = db.get_parking_session_by_plate(plate)
+    if not session_data:
+        return jsonify({'success': False, 'error': '找不到該車牌的停車記錄'})
+    
+    # 釋放車位
+    if session_data and session_data.get('slot_number'):
+        db.free_slot(session_data['slot_number'])
+    
+    # 刪除停車 session
+    db.end_parking_session(plate)
+    
+    # 加入黑名單
+    owner = db.get_owner_by_plate(plate)
+    if owner:
+        db.update_owner(
+            owner_id=owner['id'],
+            name=owner['name'],
+            phone=owner['phone'],
+            plate=owner['plate'],
+            car_type=owner.get('car_type', '轎車'),
+            slot_number=None,
+            note=owner.get('note', ''),
+            is_blacklist=1  # 設為黑名單
+        )
+    else:
+        # 如果沒有車主記錄，至少記錄到黑名單
+        db.add_owner(
+            name='黑名單-' + plate,
+            phone='',
+            plate=plate,
+            car_type='轎車',
+            note=f'禁止離場：{reason}' if reason else '禁止離場'
+        )
+        # 將其設為黑名單
+        owners = db.get_owners()
+        for o in owners:
+            if o['plate'] == plate:
+                db.update_owner(
+                    owner_id=o['id'],
+                    name=o['name'],
+                    phone=o['phone'],
+                    plate=o['plate'],
+                    car_type=o.get('car_type', '轎車'),
+                    slot_number=None,
+                    note=o.get('note', ''),
+                    is_blacklist=1
+                )
+                break
+    
+    # 記錄
+    db.add_record(plate, None, f'禁止離場：{reason}' if reason else '禁止離場')
+    
+    return jsonify({
+        'success': True,
+        'message': f'{plate} 已禁止離場'
+    })
+
 @app.route('/api/owners/<int:owner_id>/assign-slot', methods=['POST'])
 def api_owners_assign_slot(owner_id):
     if 'user_id' not in session:

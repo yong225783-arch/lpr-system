@@ -136,7 +136,11 @@
         <form id="exit-form">
             <div class="form-group">
                 <label>車牌號碼</label>
-                <input type="text" id="exit-plate" placeholder="例如：ABC-1234" required onkeyup="lookupExitPlate()">
+                <div style="display:flex; gap:5px; align-items:center;">
+                    <input type="text" id="exit-plate" placeholder="例如：ABC-1234" required onkeyup="lookupExitPlate()" style="flex:1;">
+                    <button type="button" onclick="clearExitForm()" style="padding:8px 12px; background:#dc3545; color:white; border:none; border-radius:5px; cursor:pointer;">✕</button>
+                </div>
+                <small style="color:#666;">可手動輸入車牌號碼查詢，或留空查看所有停車中的車輛</small>
             </div>
             
             <!-- 車輛資訊 -->
@@ -147,6 +151,12 @@
                     <div><strong>進場時間：</strong><span id="exit-entry-time">-</span></div>
                     <div><strong>已停時間：</strong><span id="exit-duration-display">-</span></div>
                 </div>
+            </div>
+            
+            <!-- 停車中的車輛列表（當車牌為空時顯示） -->
+            <div id="exit-vehicles-list" style="display:none; background:#f8f9fa; padding:15px; border-radius:8px; margin-bottom:15px; max-height:200px; overflow-y:auto;">
+                <div style="font-weight:bold; margin-bottom:10px;">停車中的車輛：</div>
+                <div id="exit-vehicles-container"></div>
             </div>
             
             <!-- 費用資訊 -->
@@ -185,6 +195,7 @@
             
             <div style="display:flex; gap:10px; justify-content:flex-end;">
                 <button type="button" class="btn btn-secondary" onclick="closeModal('exit-modal')">取消</button>
+                <button type="button" class="btn btn-warning" id="btn-block-exit" onclick="blockExit()" style="background:#ffc107; color:#000; display:none;">🚫 禁止離場</button>
                 <button type="submit" class="btn btn-primary" id="btn-confirm-exit" disabled>確認離場</button>
             </div>
         </form>
@@ -488,7 +499,23 @@ function doExit(slotNumber) {
 // 查詢車牌並顯示資訊
 function lookupExitPlate() {
     const plate = document.getElementById('exit-plate').value.trim();
-    if (plate.length < 3) return;
+    const vehiclesList = document.getElementById('exit-vehicles-list');
+    const vehiclesContainer = document.getElementById('exit-vehicles-container');
+    
+    if (plate.length === 0) {
+        // 空車牌，顯示所有停車中的車輛
+        vehiclesList.style.display = 'block';
+        loadAllActiveVehicles();
+        return;
+    }
+    
+    if (plate.length < 3) {
+        // 太短不查詢
+        vehiclesList.style.display = 'none';
+        return;
+    }
+    
+    vehiclesList.style.display = 'none';
     
     fetch('/api/parking/sessions/active')
         .then(r => r.json())
@@ -497,6 +524,7 @@ function lookupExitPlate() {
             const vehicleInfo = document.getElementById('exit-vehicle-info');
             const feeInfo = document.getElementById('exit-fee-info');
             const btnConfirm = document.getElementById('btn-confirm-exit');
+            const btnBlock = document.getElementById('btn-block-exit');
             
             if (session) {
                 // 找到匹配的車輛
@@ -509,6 +537,7 @@ function lookupExitPlate() {
                 vehicleInfo.style.display = 'block';
                 feeInfo.style.display = 'block';
                 btnConfirm.disabled = false;
+                btnBlock.style.display = 'inline-block';
                 
                 // 重置表單
                 document.getElementById('exit-reason').value = 'normal';
@@ -521,8 +550,75 @@ function lookupExitPlate() {
                 vehicleInfo.style.display = 'none';
                 feeInfo.style.display = 'none';
                 btnConfirm.disabled = true;
+                btnBlock.style.display = 'none';
             }
         });
+}
+
+// 載入所有停車中的車輛
+function loadAllActiveVehicles() {
+    fetch('/api/parking/sessions/active')
+        .then(r => r.json())
+        .then(sessions => {
+            const container = document.getElementById('exit-vehicles-container');
+            
+            if (sessions.length === 0) {
+                container.innerHTML = '<div style="color:#666;">目前沒有停車中的車輛</div>';
+                return;
+            }
+            
+            container.innerHTML = sessions.map(s => `
+                <div style="display:flex; justify-content:space-between; padding:8px; border-bottom:1px solid #ddd; cursor:pointer;" onclick="selectExitVehicle('${s.plate}')">
+                    <div>
+                        <strong>${s.plate}</strong>
+                        <span style="color:#666; margin-left:10px;">${s.slot_number || '-'}</span>
+                    </div>
+                    <div style="color:#666;">${s.duration || '-'}</div>
+                </div>
+            `).join('');
+        });
+}
+
+// 選擇要離場的車輛
+function selectExitVehicle(plate) {
+    document.getElementById('exit-plate').value = plate;
+    document.getElementById('exit-vehicles-list').style.display = 'none';
+    lookupExitPlate();
+}
+
+// 清除表單
+function clearExitForm() {
+    document.getElementById('exit-plate').value = '';
+    document.getElementById('exit-vehicle-info').style.display = 'none';
+    document.getElementById('exit-fee-info').style.display = 'none';
+    document.getElementById('exit-vehicles-list').style.display = 'none';
+    document.getElementById('btn-confirm-exit').disabled = true;
+    document.getElementById('btn-block-exit').style.display = 'none';
+}
+
+// 禁止離場（將車牌加入黑名單並釋放車位）
+function blockExit() {
+    const plate = document.getElementById('exit-plate').value.trim();
+    if (!plate) return;
+    
+    if (!confirm(`確定要禁止 ${plate} 離場？\n\n這會將該車輛標記為禁止離場，並釋放其車位。`)) return;
+    
+    fetch('/api/parking/block', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plate: plate, reason: document.getElementById('exit-note').value })
+    }).then(r => r.json()).then(data => {
+        if (data.success) {
+            alert(`✅ ${plate} 已禁止離場`);
+            closeModal('exit-modal');
+            clearExitForm();
+            loadSlots();
+            loadSlotStats();
+            loadActiveSessions();
+        } else {
+            alert('❌ 操作失敗：' + data.error);
+        }
+    });
 }
 
 // 根據離場原因調整費用顯示
