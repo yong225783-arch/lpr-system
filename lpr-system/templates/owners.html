@@ -7,6 +7,7 @@
     <div style="display:flex; gap:10px;">
         <button class="btn-primary" onclick="showAddModal()">+ 新增車主</button>
         <a href="/api/owners/export" class="btn-success">📥 匯出 CSV</a>
+        <button class="btn-warning" onclick="showBlacklistedOnly()" id="btn-blacklist-filter">🚫 顯示黑名單</button>
     </div>
 </div>
 
@@ -18,14 +19,14 @@
                 <th>姓名</th>
                 <th>電話</th>
                 <th>車牌</th>
-                <th>備註</th>
+                <th>車位</th>
                 <th>狀態</th>
                 <th>操作</th>
             </tr>
         </thead>
-        <tbody>
+        <tbody id="owners-tbody">
             {% for o in owners %}
-            <tr class="{% if o.is_blacklist %}row-danger{% endif %}">
+            <tr class="{% if o.is_blacklist %}row-danger{% endif %}" data-blacklist="{{ o.is_blacklist }}">
                 <td>{{ o.member_id or o.id }}</td>
                 <td>{{ o.name }}</td>
                 <td>{{ o.phone or '-' }}</td>
@@ -38,6 +39,9 @@
                 </td>
                 <td>
                     <button class="btn-sm btn-edit" onclick='editOwner({{ o | tojson }})'>編輯</button>
+                    {% if o.is_blacklist %}
+                    <button class="btn-sm btn-warning" onclick='removeBlacklist({{ o.id }})'>移除黑名單</button>
+                    {% endif %}
                     <form method="POST" action="{{ url_for('owners_delete', owner_id=o.id) }}" style="display:inline" onsubmit="return confirm('確定要刪除嗎？')">
                         <button type="submit" class="btn-sm btn-danger">刪除</button>
                     </form>
@@ -134,6 +138,45 @@ function editOwner(o) {
 
 function closeModal() {
     document.getElementById('ownerModal').style.display = 'none';
+}
+
+function removeBlacklist(ownerId) {
+    if (!confirm('確定要移除此車主的黑名單狀態？')) return;
+    fetch('/api/owners/' + ownerId + '/remove-blacklist', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('✅ 已移除黑名單');
+                location.reload();
+            } else {
+                alert('❌ 操作失敗：' + data.error);
+            }
+        });
+}
+
+let showingBlacklistOnly = false;
+function showBlacklistedOnly() {
+    showingBlacklistOnly = !showingBlacklistOnly;
+    const btn = document.getElementById('btn-blacklist-filter');
+    const rows = document.querySelectorAll('#owners-tbody tr');
+    
+    if (showingBlacklistOnly) {
+        btn.textContent = '👥 顯示全部';
+        btn.classList.remove('btn-warning');
+        btn.classList.add('btn-danger');
+        rows.forEach(row => {
+            if (row.dataset.blacklist !== '1') {
+                row.style.display = 'none';
+            }
+        });
+    } else {
+        btn.textContent = '🚫 顯示黑名單';
+        btn.classList.remove('btn-danger');
+        btn.classList.add('btn-warning');
+        rows.forEach(row => {
+            row.style.display = '';
+        });
+    }
 }
 
 window.onclick = function(e) {

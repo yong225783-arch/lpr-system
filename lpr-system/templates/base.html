@@ -22,6 +22,7 @@
             <a href="{{ url_for('billing') }}" class="{% if request.endpoint == 'billing' %}active{% endif %}">💰計費管理</a>
             <a href="{{ url_for('records') }}" class="{% if request.endpoint == 'records' %}active{% endif %}">📋開門紀錄</a>
             <a href="{{ url_for('settings') }}" class="{% if request.endpoint == 'settings' %}active{% endif %}">⚙️設定</a>
+            <span id="alert-badge" style="display:none; background:#dc3545; color:white; padding:2px 8px; border-radius:10px; font-size:12px; margin-left:5px;">0</span>
             <span class="nav-user">{{ username }}</span>
             <a href="{{ url_for('logout') }}" class="btn-logout">登出</a>
         </div>
@@ -42,6 +43,38 @@
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script>
+    // 通知系統
+    function loadAlerts() {
+        fetch('/api/alerts')
+            .then(r => r.json())
+            .then(data => {
+                const badge = document.getElementById('alert-badge');
+                if (data.unread_count > 0) {
+                    badge.style.display = 'inline';
+                    badge.textContent = data.unread_count > 99 ? '99+' : data.unread_count;
+                } else {
+                    badge.style.display = 'none';
+                }
+                
+                // 如果有新的危險警告，顯示出來
+                if (data.alerts && data.alerts.length > 0) {
+                    data.alerts.forEach(alert => {
+                        if (!alert.read && alert.type === 'danger') {
+                            console.warn('系統警告:', alert.message);
+                        }
+                    });
+                }
+            })
+            .catch(() => {});
+    }
+    
+    // 頁面載入時檢查通知
+    {% if session.get('user_id') %}
+    loadAlerts();
+    setInterval(loadAlerts, 30000); // 每 30 秒更新
+    {% endif %}
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

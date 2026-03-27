@@ -23,6 +23,20 @@ import database as db
 # ============ 登入 Rate Limiting ============
 
 login_attempts = {}  # {IP: (count, last_attempt_time)}
+alerts = []  # 系統通知列表 [{type, message, timestamp, read}]
+
+def add_alert(type, message):
+    """新增系統通知"""
+    now = datetime.now()
+    alerts.insert(0, {
+        'type': type,  # 'danger', 'warning', 'info'
+        'message': message,
+        'timestamp': now.strftime('%Y-%m-%d %H:%M:%S'),
+        'read': False
+    })
+    # 只保留最近 50 條通知
+    if len(alerts) > 50:
+        alerts.pop()
 
 def check_login_rate_limit(ip):
     """檢查 IP 是否被限制"""
@@ -428,6 +442,31 @@ def owners_delete(owner_id):
     db.delete_owner(owner_id)
     flash('已刪除', 'success')
     return redirect(url_for('owners'))
+
+@app.route('/api/owners/<int:owner_id>/remove-blacklist', methods=['POST'])
+def api_owners_remove_blacklist(owner_id):
+    """移除車主的黑名單狀態"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登入'})
+    
+    owner = db.get_owner_by_id(owner_id)
+    if not owner:
+        return jsonify({'success': False, 'error': '找不到車主'})
+    
+    # 更新為非黑名單
+    db.update_owner(
+        owner_id=owner_id,
+        name=owner['name'],
+        phone=owner['phone'],
+        plate=owner['plate'],
+        car_type=owner.get('car_type', '轎車'),
+        slot_number=owner.get('slot_number'),
+        note=owner.get('note', ''),
+        is_blacklist=0,
+        member_id=owner.get('member_id')
+    )
+    
+    return jsonify({'success': True, 'message': '已移除黑名單'})
 
 # --- 開門紀錄 ---
 
@@ -1320,9 +1359,19 @@ def api_detect_plate():
     # Step 6: 比對白名單
     matched_owner = None
     matched_plate = None
+    is_blacklisted = False
     for plate in combined_plates:
         owner = db.get_owner_by_plate(plate)
         if owner:
+            # 檢查是否為黑名單
+            if owner.get('is_blacklist'):
+                is_blacklisted = True
+                add_alert('danger', f'🚫 黑名單車輛出現：{plate}（{owner.get("name", "未知")}）')
+                db.add_record(plate, owner.get('name'), '⚠️ 黑名單車輛', filepath)
+                logger.warning(f'黑名單車輛 {plate} 被偵測到！')
+                # 不開門
+                continue
+            
             matched_owner = owner
             matched_plate = plate
             # 找到匹配的車牌，開門
@@ -1516,6 +1565,29 @@ def parking_slots():
 # --- 計費 API ---
 
 @app.route('/api/billing/stats')
+@app.route('/api/alerts')
+def api_alerts():
+    """取得系統通知"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    # 只回傳未讀的，或最近 20 條
+    unread = [a for a in alerts if not a['read']]
+    return jsonify({
+        'alerts': alerts[:20],
+        'unread_count': len(unread)
+    })
+
+@app.route('/api/alerts/mark-read', methods=['POST'])
+def api_alerts_mark_read():
+    """標記通知為已讀"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    for a in alerts:
+        a['read'] = True
+    return jsonify({'success': True})
+
 def api_billing_stats():
     """取得帳單統計"""
     today = datetime.now().strftime('%Y-%m-%d')
