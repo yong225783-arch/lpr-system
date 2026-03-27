@@ -23,9 +23,26 @@ def init_db():
             phone TEXT,
             plate TEXT UNIQUE NOT NULL,
             car_type TEXT DEFAULT '轎車',
+            owner_type TEXT DEFAULT 'resident',  -- resident (月租戶) or visitor (臨停)
             slot_number TEXT,
             note TEXT,
             is_blacklist INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # 訪客通行證表（臨時通行）
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS visitor_passes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plate TEXT NOT NULL,
+            visitor_name TEXT,
+            visitor_phone TEXT,
+            valid_from TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            valid_until TIMESTAMP NOT NULL,
+            status TEXT DEFAULT 'active',  -- active, used, expired, cancelled
+            note TEXT,
+            created_by INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -118,10 +135,12 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             car_type TEXT DEFAULT 'all',  -- all, 轎車, 休旅車, 機車
+            billing_type TEXT DEFAULT 'hourly',  -- hourly (臨停) or monthly (月租)
             base_minutes INTEGER DEFAULT 0,  -- 免費分鐘數
             base_fee INTEGER DEFAULT 0,  --  base_time 內的費用（分）
             hourly_fee INTEGER DEFAULT 100,  -- 每小時費用（分）
             daily_max INTEGER,  -- 每日上限（分）
+            monthly_fee INTEGER,  -- 月租費（月租戶用）
             is_active INTEGER DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -139,8 +158,12 @@ def init_db():
     c.execute('SELECT * FROM billing_rules WHERE name = ?', ('default',))
     if not c.fetchone():
         c.execute(
-            'INSERT INTO billing_rules (name, car_type, base_minutes, base_fee, hourly_fee, daily_max) VALUES (?, ?, ?, ?, ?, ?)',
-            ('一般計時', 'all', 15, 0, 30, 500)
+            'INSERT INTO billing_rules (name, car_type, billing_type, base_minutes, base_fee, hourly_fee, daily_max, monthly_fee) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            ('一般臨停', 'all', 'hourly', 15, 0, 30, 500, 0)
+        )
+        c.execute(
+            'INSERT INTO billing_rules (name, car_type, billing_type, monthly_fee) VALUES (?, ?, ?, ?)',
+            ('月租戶', 'all', 'monthly', 3000)
         )
 
     conn.commit()
@@ -478,13 +501,34 @@ def get_parking_session_by_plate(plate):
 
 # ============ 費用計算 ============
 
-def calculate_fee(duration_minutes, slot_number=None, car_type='all'):
-    """計算停車費用"""
+def calculate_fee(duration_minutes, slot_number=None, car_type='all', owner_type='visitor'):
+    """計算停車費用
+    
+    Args:
+        duration_minutes: 停車分鐘數
+        slot_number: 車位號碼
+        car_type: 車型
+        owner_type: 'resident' (月租戶) or 'visitor' (臨停)
+    """
     conn = get_db()
     
-    # 取得適用的收費規則
+    # 如果是月租戶，直接用月租費（這裡簡化處理）
+    if owner_type == 'resident':
+        # 月租戶：根據停車時長計算（一天為上限）
+        rule = conn.execute(
+            "SELECT * FROM billing_rules WHERE is_active=1 AND billing_type='monthly' LIMIT 1"
+        ).fetchone()
+        if rule:
+            monthly_fee = rule['monthly_fee'] or 0
+            # 簡化：不足一天按比例計算，最高為月租費
+            daily_equivalent = monthly_fee / 30
+            fee = min(int(daily_equivalent * (duration_minutes / 1440)), monthly_fee)
+            conn.close()
+            return fee
+    
+    # 臨停：用一般計時規則
     rule = conn.execute(
-        'SELECT * FROM billing_rules WHERE is_active=1 AND (car_type=? OR car_type="all") ORDER BY car_type DESC LIMIT 1',
+        'SELECT * FROM billing_rules WHERE is_active=1 AND billing_type="hourly" AND (car_type=? OR car_type="all") ORDER BY car_type DESC LIMIT 1',
         (car_type,)
     ).fetchone()
     
@@ -511,6 +555,63 @@ def calculate_fee(duration_minutes, slot_number=None, car_type='all'):
         fee = daily_max
     
     return fee
+
+# ============ 訪客通行證 ============
+
+def get_visitor_passes(active_only=True):
+    """取得訪客通行證列表"""
+    conn = get_db()
+    if active_only:
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        rows = conn.execute(
+            "SELECT * FROM visitor_passes WHERE status='active' AND valid_until >= ? ORDER BY valid_until ASC",
+            (now,)
+        ).fetchall()
+    else:
+        rows = conn.execute('SELECT * FROM visitor_passes ORDER BY created_at DESC').fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def create_visitor_pass(plate, visitor_name, visitor_phone, valid_hours, note='', created_by=None):
+    """建立訪客通行證"""
+    conn = get_db()
+    from datetime import timedelta
+    valid_from = datetime.now()
+    valid_until = valid_from + timedelta(hours=valid_hours)
+    
+    cursor = conn.execute(
+        '''INSERT INTO visitor_passes (plate, visitor_name, visitor_phone, valid_from, valid_until, note, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?)''',
+        (plate, visitor_name, visitor_phone, valid_from, valid_until, note, created_by)
+    )
+    conn.commit()
+    conn.close()
+    return cursor.lastrowid
+
+def check_visitor_pass(plate):
+    """檢查車牌是否有有效的訪客通行證"""
+    conn = get_db()
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    row = conn.execute(
+        "SELECT * FROM visitor_passes WHERE plate=? AND status='active' AND valid_until >= ? ORDER BY valid_until DESC LIMIT 1",
+        (plate, now)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def use_visitor_pass(pass_id):
+    """使用通行證（標記為已使用）"""
+    conn = get_db()
+    conn.execute("UPDATE visitor_passes SET status='used' WHERE id=?", (pass_id,))
+    conn.commit()
+    conn.close()
+
+def cancel_visitor_pass(pass_id):
+    """取消通行證"""
+    conn = get_db()
+    conn.execute("UPDATE visitor_passes SET status='cancelled' WHERE id=?", (pass_id,))
+    conn.commit()
+    conn.close()
 
 # ============ 帳單管理 ============
 

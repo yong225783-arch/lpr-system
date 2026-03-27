@@ -543,6 +543,62 @@ def api_records_export():
     response.headers['Content-Disposition'] = f'attachment; filename=records_{datetime.now().strftime("%Y%m%d")}.csv'
     return response
 
+# ============ 訪客通行證 ============
+
+@app.route('/api/visitor-passes')
+def api_visitor_passes():
+    """取得訪客通行證列表"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    passes = db.get_visitor_passes(active_only=False)
+    return jsonify({'passes': passes})
+
+@app.route('/api/visitor-passes/active')
+def api_visitor_passes_active():
+    """取得有效的訪客通行證"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    passes = db.get_visitor_passes(active_only=True)
+    return jsonify({'passes': passes})
+
+@app.route('/api/visitor-passes', methods=['POST'])
+def api_visitor_passes_add():
+    """新增訪客通行證"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    data = request.json
+    plate = data.get('plate', '').upper()
+    visitor_name = data.get('visitor_name', '')
+    visitor_phone = data.get('visitor_phone', '')
+    valid_hours = int(data.get('valid_hours', 24))
+    note = data.get('note', '')
+    
+    if not plate:
+        return jsonify({'success': False, 'error': '請填寫車牌'})
+    
+    pass_id = db.create_visitor_pass(
+        plate=plate,
+        visitor_name=visitor_name,
+        visitor_phone=visitor_phone,
+        valid_hours=valid_hours,
+        note=note,
+        created_by=session.get('user_id')
+    )
+    
+    return jsonify({'success': True, 'pass_id': pass_id, 'message': f'已建立通行證，有效期 {valid_hours} 小時'})
+
+@app.route('/api/visitor-passes/<int:pass_id>/cancel', methods=['POST'])
+def api_visitor_passes_cancel(pass_id):
+    """取消訪客通行證"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    db.cancel_visitor_pass(pass_id)
+    return jsonify({'success': True, 'message': '已取消通行證'})
+
 @app.route('/api/billing/export')
 def api_billing_export():
     """匯出帳單為 CSV"""
@@ -1360,6 +1416,8 @@ def api_detect_plate():
     matched_owner = None
     matched_plate = None
     is_blacklisted = False
+    visitor_pass = None
+    
     for plate in combined_plates:
         owner = db.get_owner_by_plate(plate)
         if owner:
@@ -1377,9 +1435,23 @@ def api_detect_plate():
             # 找到匹配的車牌，開門
             if relay:
                 relay.open_gate()
-            db.add_record(plate, owner['name'], 'YOLOv8+PaddleOCR 自動辨識開門', filepath)
+            db.add_record(plate, owner['name'], 'YOLOv8 自動辨識開門', filepath)
             logger.info(f'車牌 {plate} 比對成功，{owner["name"]} 已開門')
             break
+    
+    # 如果沒有匹配到車主，檢查是否有有效的訪客通行證
+    if not matched_plate:
+        for plate in combined_plates:
+            visitor_pass = db.check_visitor_pass(plate)
+            if visitor_pass:
+                matched_plate = plate
+                if relay:
+                    relay.open_gate()
+                db.add_record(plate, visitor_pass.get('visitor_name', '訪客'), '訪客通行證開門', filepath)
+                db.use_visitor_pass(visitor_pass['id'])  # 標記為已使用
+                logger.info(f'車牌 {plate} 持有有效訪客通行證，已開門')
+                add_alert('info', f'👋 訪客通行：{plate}（{visitor_pass.get("visitor_name", "未知")}）')
+                break
     
     # 計算平均 OCR 信心度
     avg_conf = 0
