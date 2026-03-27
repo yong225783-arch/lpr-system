@@ -35,6 +35,36 @@
     </div>
 
     <div class="settings-card">
+        <h2>📝 系統資訊</h2>
+        <form method="POST" action="{{ url_for('settings_save') }}">
+            <input type="hidden" name="section" value="project">
+            <div class="form-group">
+                <label>系統名稱</label>
+                <input type="text" name="project_name" value="{{ project_name or '車牌辨識開門系統' }}" placeholder="例如：XX社區車牌辨識系統">
+                <small>將顯示在網頁標題和導航列</small>
+            </div>
+            <button type="submit" class="btn btn-primary">儲存</button>
+        </form>
+    </div>
+
+    <div class="settings-card">
+        <h2>🔧 工程商設定</h2>
+        <form id="engineer-form">
+            <div class="form-group">
+                <label>工程商密碼</label>
+                <input type="password" id="engineer-password-new" placeholder="輸入新密碼（留空保持不變）">
+                <small>設定後，進入設定頁面需要輸入此密碼</small>
+            </div>
+            <div class="form-group">
+                <label>確認密碼</label>
+                <input type="password" id="engineer-password-confirm" placeholder="再次輸入密碼">
+            </div>
+            <button type="button" class="btn btn-warning" onclick="saveEngineerPassword()">儲存工程商密碼</button>
+            <span id="engineer-save-result"></span>
+        </form>
+    </div>
+
+    <div class="settings-card">
         <h2>🔌 繼電器設定</h2>
         <form method="POST" action="{{ url_for('settings_save') }}">
             <input type="hidden" name="section" value="relay">
@@ -256,5 +286,41 @@ function restoreBackup(name) {
 
 // 頁面載入時自動刷新備份列表
 refreshBackups();
+
+function saveEngineerPassword() {
+    const pwd = document.getElementById('engineer-password-new').value;
+    const confirm = document.getElementById('engineer-password-confirm').value;
+    const result = document.getElementById('engineer-save-result');
+    
+    if (!pwd) {
+        result.textContent = '請輸入密碼';
+        result.style.color = '#dc3545';
+        return;
+    }
+    
+    if (pwd !== confirm) {
+        result.textContent = '兩次密碼不同';
+        result.style.color = '#dc3545';
+        return;
+    }
+    
+    fetch('/api/settings/set-engineer-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pwd })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            result.textContent = '✅ 儲存成功';
+            result.style.color = '#28a745';
+            document.getElementById('engineer-password-new').value = '';
+            document.getElementById('engineer-password-confirm').value = '';
+        } else {
+            result.textContent = '❌ 儲存失敗';
+            result.style.color = '#dc3545';
+        }
+    });
+}
 </script>
 {% endblock %}

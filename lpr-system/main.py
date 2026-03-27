@@ -113,6 +113,15 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
 
+# ============ Context Processor ============
+
+@app.context_processor
+def inject_project_name():
+    """所有模板都注入 project_name"""
+    return {
+        'project_name': db.get_setting('project_name', '車牌辨識開門系統')
+    }
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -731,7 +740,8 @@ def settings():
         ocr_conf=float(db.get_setting('ocr_conf', '0.3')),
         image_zoom=float(db.get_setting('image_zoom', '2')),
         cooldown=int(db.get_setting('cooldown', '5')),
-        ocr_engine=db.get_setting('ocr_engine', 'easyocr')
+        ocr_engine=db.get_setting('ocr_engine', 'easyocr'),
+        project_name=db.get_setting('project_name', '車牌辨識開門系統')
     )
 
 # ============ 資料庫備份 ============
@@ -832,6 +842,9 @@ def settings_save():
         db.set_setting('cooldown', request.form.get('cooldown', '5'))
         db.set_setting('ocr_engine', request.form.get('ocr_engine', 'easyocr'))
         flash('車牌辨識微調設定已儲存', 'success')
+    elif section == 'project':
+        db.set_setting('project_name', request.form.get('project_name', '車牌辨識開門系統'))
+        flash('系統資訊已儲存', 'success')
     return redirect(url_for('settings'))
 
 # ============ 測試 API ============
@@ -1795,6 +1808,48 @@ def api_billing_mark_paid(billing_id):
         return jsonify({'error': 'Unauthorized'}), 401
     db.mark_billing_paid(billing_id)
     return jsonify({'success': True})
+
+@app.route('/api/engineer/verify', methods=['POST'])
+def api_engineer_verify():
+    """工程商密碼驗證"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'error': '未登入'})
+    
+    import hashlib
+    data = request.json
+    password = data.get('password', '')
+    
+    # 取得工程商密碼（hash 比對）
+    stored_hash = db.get_setting('engineer_password_hash', '')
+    if not stored_hash:
+        # 如果沒有設定工程商密碼，就不允許進入
+        return jsonify({'success': False, 'error': '工程商密碼未設定'})
+    
+    # 比對密碼
+    input_hash = hashlib.sha256(password.encode()).hexdigest()
+    if input_hash == stored_hash:
+        session['engineer_mode'] = True
+        return jsonify({'success': True})
+    
+    return jsonify({'success': False, 'error': '密碼錯誤'})
+
+@app.route('/api/settings/set-engineer-password', methods=['POST'])
+def api_set_engineer_password():
+    """設定工程商密碼"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'error': '未登入'})
+    
+    import hashlib
+    data = request.json
+    password = data.get('password', '')
+    
+    if not password:
+        return jsonify({'success': False, 'error': '密碼不能為空'})
+    
+    password_hash = hashlib.sha256(password.encode()).hexdigest()
+    db.set_setting('engineer_password_hash', password_hash)
+    
+    return jsonify({'success': True, 'message': '工程商密碼已設定'})
 
 # --- 車位 API ---
 

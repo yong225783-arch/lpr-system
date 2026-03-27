@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}車牌辨識開門系統{% endblock %}</title>
+    <title>{% block title %}{{ project_name or '車牌辨識開門系統' }}{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
     {% block extra_head %}{% endblock %}
@@ -13,7 +13,7 @@
     <nav class="navbar">
         <div class="nav-brand">
             <span class="logo">🚗</span>
-            <span>車牌辨識系統</span>
+            <span>{{ project_name or '車牌辨識系統' }}</span>
         </div>
         <div class="nav-links">
             <a href="{{ url_for('index') }}" class="{% if request.endpoint == 'index' %}active{% endif %}">首頁</a>
@@ -22,13 +22,35 @@
             <a href="{{ url_for('visitor_passes') }}" class="{% if request.endpoint == 'visitor_passes' %}active{% endif %}">🎫訪客通行</a>
             <a href="{{ url_for('billing') }}" class="{% if request.endpoint == 'billing' %}active{% endif %}">💰計費管理</a>
             <a href="{{ url_for('records') }}" class="{% if request.endpoint == 'records' %}active{% endif %}">📋開門紀錄</a>
+            {% if session.get('engineer_mode') %}
             <a href="{{ url_for('settings') }}" class="{% if request.endpoint == 'settings' %}active{% endif %}">⚙️設定</a>
+            {% else %}
+            <a href="#" onclick="showEngineerLogin()" style="color:#ffc107;">🔧設定</a>
+            {% endif %}
             <span id="alert-badge" style="display:none; background:#dc3545; color:white; padding:2px 8px; border-radius:10px; font-size:12px; margin-left:5px;">0</span>
             <span class="nav-user">{{ username }}</span>
             <a href="{{ url_for('logout') }}" class="btn-logout">登出</a>
         </div>
     </nav>
     {% endif %}
+    
+    <!-- 工程商登入 Modal -->
+    <div id="engineer-modal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width:400px;">
+            <span class="modal-close" onclick="closeEngineerModal()">&times;</span>
+            <h2>🔧 工程商驗證</h2>
+            <p style="color:#666;">請輸入工程商密碼以進入設定頁面</p>
+            <form onsubmit="submitEngineerLogin(event)">
+                <div class="form-group">
+                    <label>工程商密碼</label>
+                    <input type="password" id="engineer-password" placeholder="請輸入密碼" required>
+                </div>
+                <button type="submit" class="btn btn-primary">驗證</button>
+                <button type="button" class="btn btn-secondary" onclick="closeEngineerModal()">取消</button>
+            </form>
+            <div id="engineer-error" style="color:#dc3545; margin-top:10px; display:none;">密碼錯誤</div>
+        </div>
+    </div>
 
     <main class="container">
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -75,6 +97,37 @@
     loadAlerts();
     setInterval(loadAlerts, 30000); // 每 30 秒更新
     {% endif %}
+    
+    function showEngineerLogin() {
+        document.getElementById('engineer-modal').style.display = 'flex';
+        document.getElementById('engineer-password').focus();
+    }
+    
+    function closeEngineerModal() {
+        document.getElementById('engineer-modal').style.display = 'none';
+        document.getElementById('engineer-password').value = '';
+        document.getElementById('engineer-error').style.display = 'none';
+    }
+    
+    function submitEngineerLogin(e) {
+        e.preventDefault();
+        const pwd = document.getElementById('engineer-password').value;
+        
+        fetch('/api/engineer/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: pwd })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                window.location.href = '/settings';
+            } else {
+                document.getElementById('engineer-error').style.display = 'block';
+                document.getElementById('engineer-password').value = '';
+            }
+        });
+    }
     </script>
     {% block scripts %}{% endblock %}
 </body>
