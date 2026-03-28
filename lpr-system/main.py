@@ -119,6 +119,8 @@ def restore_database(backup_file):
     """從備份還原資料庫"""
     try:
         shutil.copy2(backup_file, 'lpr.db')
+        # 確保索引和遷移在還原後重新套用
+        db.init_db()
         logger.info(f'資料庫已還原: {backup_file}')
         return True
     except Exception as e:
@@ -292,15 +294,26 @@ class PlateRecognizer:
         """連續偵測執行緒"""
         def run():
             camera = self.get_camera(mode)
+            reconnect_failures = 0
             while self.running:
                 if not camera or not camera.isOpened():
-                    time.sleep(0.1)
+                    camera = self.get_camera(mode)
+                    reconnect_failures += 1
+                    if reconnect_failures > 50:
+                        logger.warning(f'攝影機 {mode} 連線失敗，已停止嘗試')
+                        break
+                    time.sleep(0.5)
                     continue
                 ret, frame = camera.read()
                 if not ret:
-                    time.sleep(0.1)
+                    reconnect_failures += 1
+                    if reconnect_failures > 10:
+                        logger.warning(f'攝影機 {mode} 讀取失敗，嘗試重連...')
+                        camera = self.get_camera(mode)
+                        reconnect_failures = 0
+                    time.sleep(0.2)
                     continue
-
+                reconnect_failures = 0
                 frame = self._apply_roi(frame, mode)
 
                 # 車牌辨識流程
@@ -1247,43 +1260,32 @@ def test_relay():
         return jsonify({'success': ok, 'message': '' if ok else '連接失敗'})
     return jsonify({'success': False, 'message': '繼電器未連接'})
 
-def detect_plate_in_image(image_path):
-    """使用 OpenCV 檢測車牌區域"""
-    img = cv2.imread(image_path)
-    if img is None:
-        return None
-    
-    # 轉灰階
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    
-    # 高斯模糊
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    
-    # 邊緣檢測
-    edged = cv2.Canny(blur, 50, 150)
-    
-    # 找輪廓
-    contours, _ = cv2.findContours(edged.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    contours = sorted(contours, key=cv2.contourArea, reverse=True)[:20]
-    
-    plate_regions = []
-    for c in contours:
-        peri = cv2.arcLength(c, True)
-        approx = cv2.approxPolyDP(c, 0.018 * peri, True)
-        
-        # 車牌通常是四邊形，且有一定大小
-        if len(approx) == 4 and cv2.contourArea(c) > 1000:
-            x, y, w, h = cv2.boundingRect(c)
-            aspect_ratio = w / float(h)
-            # 車牌長寬比通常在 2-6 之間
-            if 2 < aspect_ratio < 6 and w > 50 and h > 15:
-                plate_regions.append({
-                    'x': int(x), 'y': int(y),
-                    'width': int(w), 'height': int(h),
-                    'confidence': cv2.contourArea(c)
-                })
-    
-    return plate_regions if plate_regions else None
+
+def ocr_crop_with_tesseract(crop_img):
+    """Use Tesseract OCR for plate crop (fallback engine)"""
+    try:
+        import pytesseract
+        import cv2
+        import numpy as np
+
+        h, w = crop_img.shape[:2]
+        if h < 20 or w < 60:
+            scale = max(60 / w, 20 / h)
+            crop_img = cv2.resize(crop_img, (int(w * scale), int(h * scale)))
+
+        gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+        config = '--psm 7 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-'
+        text = pytesseract.image_to_string(binary, lang='eng', config=config).strip()
+
+        if text:
+            logger.info(f'Tesseract fallback found: {text}')
+            return [{'text': text, 'confidence': 0.7}]
+        return []
+    except Exception as e:
+        logger.error(f'Tesseract OCR failed: {e}')
+        return []
 
 # 初始化 YOLOv8 和 PaddleOCR (在背景延遲載入)
 _yolo_model = None
@@ -1356,7 +1358,6 @@ def detect_plate_with_yolo(image_path):
     回傳: list of {'bbox': tuple, 'crop': numpy array}
     """
     try:
-        from ultralytics import YOLO
         model = get_yolo_model()
         img = cv2.imread(image_path)
         if img is None:
@@ -1845,7 +1846,7 @@ def api_detect_plate():
         elif ocr_engine == 'easyocr':
             ocr_texts = ocr_crop_with_easyocr(transformed)
         elif ocr_engine == 'tesseract':
-            ocr_texts = ocr_crop_with_easyocr(transformed)
+            ocr_texts = ocr_crop_with_tesseract(transformed)
         elif ocr_engine == 'paddle':
             ocr_texts = ocr_crop_with_paddle(transformed)
         else:  # 'both' or 'hybrid'
@@ -1868,16 +1869,25 @@ def api_detect_plate():
     # Step 3: 對全圖做 OCR（根據設定選擇引擎）
     if ocr_engine == 'ollama':
         full_ocr_texts = ocr_with_ollama(filepath)
-    elif ocr_engine == 'easyocr' or ocr_engine == 'tesseract':
+    elif ocr_engine == 'easyocr':
         full_ocr_texts = ocr_with_easyocr(filepath)
+        if not full_ocr_texts:
+            full_ocr_texts = ocr_with_tesseract(filepath)
+    elif ocr_engine == 'tesseract':
+        full_ocr_texts = ocr_with_tesseract(filepath)
     elif ocr_engine == 'paddle':
         full_ocr_texts = ocr_crop_with_paddle(cv2.imread(filepath))
     else:  # 'both' or 'hybrid'
-        # hybrid: 先用 EasyOCR，再用 Ollama 備援
+        # hybrid: 先用 EasyOCR，再用 Ollama/Tesseract 備援
         full_ocr_texts = ocr_with_easyocr(filepath)
         if not full_ocr_texts:
-            ollama_full = ocr_with_ollama(filepath)
-            full_ocr_texts.extend(ollama_full)
+            try:
+                ollama_full = ocr_with_ollama(filepath)
+                full_ocr_texts.extend(ollama_full)
+            except:
+                pass
+        if not full_ocr_texts:
+            full_ocr_texts = ocr_with_tesseract(filepath)
     all_ocr_texts.extend(full_ocr_texts)
     full_plates = filter_plate_text(full_ocr_texts)
     
@@ -2498,7 +2508,7 @@ def api_parking_exit():
     
     owner = db.get_owner_by_plate(plate) if plate else None
     
-    session_id, result = db.end_parking_session(plate)
+    session_id, result = db.end_parking_session(plate, owner_type=owner.get('owner_type', 'visitor') if owner else 'visitor')
     
     # 釋放車位
     if slot_number:
@@ -2534,7 +2544,7 @@ def api_parking_exit():
     }.get(reason, '離場')
     
     note_suffix = f' ({note})' if note else ''
-    db.add_record(plate, owner['name'] if owner else None, reason_text + note_suffix)
+    db.add_record(plate, owner['name'] if owner else None, reason_text + note_suffix, direction='out')
     
     # 建立帳單
     session_data = db.get_parking_session_by_plate(plate) if plate else None
@@ -2584,11 +2594,14 @@ def api_parking_block():
     if session_data and session_data.get('slot_number'):
         db.free_slot(session_data['slot_number'])
     
+    # 取得車主資訊（用於計費）
+    owner = db.get_owner_by_plate(plate)
+    owner_type = owner.get('owner_type', 'visitor') if owner else 'visitor'
+    
     # 刪除停車 session
-    db.end_parking_session(plate)
+    db.end_parking_session(plate, owner_type=owner_type)
     
     # 加入黑名單
-    owner = db.get_owner_by_plate(plate)
     if owner:
         db.update_owner(
             owner_id=owner['id'],
@@ -2626,7 +2639,7 @@ def api_parking_block():
                 break
     
     # 記錄
-    db.add_record(plate, None, f'禁止離場：{reason}' if reason else '禁止離場')
+    db.add_record(plate, None, f'禁止離場：{reason}' if reason else '禁止離場', direction='out')
     
     return jsonify({
         'success': True,

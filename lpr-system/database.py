@@ -532,7 +532,7 @@ def create_parking_session(plate, slot_number=None, owner_id=None, direction='in
     conn.close()
     return session_id, '進場成功'
 
-def end_parking_session(plate, note=''):
+def end_parking_session(plate, note='', owner_type='visitor'):
     conn = get_db()
     session = conn.execute(
         "SELECT * FROM parking_sessions WHERE plate=? AND status='parking' ORDER BY entry_time DESC LIMIT 1",
@@ -554,7 +554,7 @@ def end_parking_session(plate, note=''):
     duration_minutes = int((exit_time - entry_time).total_seconds() / 60)
     
     # 計算費用
-    fee = calculate_fee(duration_minutes, session['slot_number'])
+    fee = calculate_fee(duration_minutes, session['slot_number'], owner_type=owner_type)
     
     conn.execute(
         'UPDATE parking_sessions SET exit_time=?, status=?, fee=? WHERE id=?',
