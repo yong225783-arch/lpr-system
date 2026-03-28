@@ -261,17 +261,18 @@ def get_owner_by_id(owner_id):
 
 def add_owner(name, phone, plate, car_type='轎車', slot_number=None, note='', owner_id=None, member_id=None, owner_type='resident', card_id=None):
     conn = get_db()
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     try:
         if owner_id:
             # 手動指定 ID
             conn.execute(
-                'INSERT INTO owners (id, member_id, name, phone, plate, card_id, car_type, owner_type, slot_number, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (owner_id, member_id, name, phone, plate, card_id, car_type, owner_type, slot_number if slot_number else None, note)
+                'INSERT INTO owners (id, member_id, name, phone, plate, card_id, car_type, owner_type, slot_number, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (owner_id, member_id, name, phone, plate, card_id, car_type, owner_type, slot_number if slot_number else None, note, now)
             )
         else:
             conn.execute(
-                'INSERT INTO owners (member_id, name, phone, plate, card_id, car_type, owner_type, slot_number, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (member_id, name, phone, plate, card_id, car_type, owner_type, slot_number if slot_number else None, note)
+                'INSERT INTO owners (member_id, name, phone, plate, card_id, car_type, owner_type, slot_number, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (member_id, name, phone, plate, card_id, car_type, owner_type, slot_number if slot_number else None, note, now)
             )
         conn.commit()
         conn.close()
@@ -318,9 +319,10 @@ def update_record_note(record_id, note):
 
 def add_record(plate, owner_name, result, image_path=None, note='', direction='in'):
     conn = get_db()
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     conn.execute(
-        'INSERT INTO records (plate, owner_name, result, image_path, note, direction) VALUES (?, ?, ?, ?, ?, ?)',
-        (plate, owner_name, result, image_path, note, direction)
+        'INSERT INTO records (plate, owner_name, result, image_path, note, direction, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        (plate, owner_name, result, image_path, note, direction, now)
     )
     conn.commit()
     conn.close()

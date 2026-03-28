@@ -12,12 +12,19 @@ import logging
 import threading
 import cv2
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import (
     Flask, render_template, request, redirect,
     url_for, session, jsonify, send_file, flash, make_response
 )
 from werkzeug.security import generate_password_hash
+
+# 設定時區為台北
+os.environ['TZ'] = 'Asia/Taipei'
+try:
+    time.tzset()
+except:
+    pass
 import database as db
 
 # ============ 登入 Rate Limiting ============
