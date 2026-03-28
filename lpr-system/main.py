@@ -355,7 +355,7 @@ simulate_relay = os.environ.get('SIMULATE_RELAY', '').lower() in ('1', 'true', '
 if simulate_relay:
     from relay import RelayController
     relay = RelayController(simulate=True)
-    logger.info('繼電器：模擬模式（無硬體）')
+    logger.warning('⚠️  繼電器：模擬模式（無硬體）— 正式環境請設 SIMULATE_RELAY=0')
 elif relay_type == 'modbus_tcp':
     relay_modbus_ip = db.get_setting('relay_modbus_ip', '')
     relay_modbus_port = int(db.get_setting('relay_modbus_port', 502))
@@ -379,7 +379,7 @@ elif relay_port:
 else:
     from relay import RelayController
     relay = RelayController(simulate=True)
-    logger.info('繼電器：模擬模式（無硬體）')
+    logger.warning('⚠️  繼電器：模擬模式（無硬體）— 請設定 RELAY_PORT 或 RELAY_TYPE')
 
 # ============ 攝影機串流 / 截圖 ============
 
@@ -414,6 +414,8 @@ def video_feed_jpg(mode='in'):
 @app.route('/captures/<path:filename>')
 def serve_capture(filename):
     """提供 captures 資料夾中的圖片"""
+    if 'user_id' not in session:
+        return '', 401
     from flask import send_from_directory
     return send_from_directory('captures', filename)
 
@@ -859,7 +861,7 @@ def api_owners_import():
                 continue
             
             try:
-                # ID,車牌,姓名,電話,車型,車位,備註
+                # ID,車牌,姓名,電話,車型,車位,備註,車主類型,卡號
                 owner_id = row[0].strip() if row[0] else None
                 plate = row[1].strip().upper().replace('·', '')
                 name = row[2].strip()
@@ -867,6 +869,8 @@ def api_owners_import():
                 car_type = row[4].strip() if len(row) > 4 else '轎車'
                 slot_number = row[5].strip() if len(row) > 5 else ''
                 note = row[6].strip() if len(row) > 6 else ''
+                owner_type = row[7].strip() if len(row) > 7 else 'resident'
+                card_id = row[8].strip() if len(row) > 8 else ''
                 
                 if not plate or not name:
                     errors.append(f'第 {i+2} 行：車牌或姓名為空')
@@ -875,12 +879,21 @@ def api_owners_import():
                 # 檢查是否已存在
                 existing = db.get_owner_by_plate(plate)
                 if existing:
-                    # 更新
-                    db.update_owner(existing['id'], name, phone, plate, car_type, slot_number, note, existing.get('is_blacklist', 0))
+                    # 更新（保留原有 owner_type 和 card_id 若未提供）
+                    db.update_owner(
+                        existing['id'], name, phone, plate, car_type, slot_number, note,
+                        existing.get('is_blacklist', 0),
+                        owner_type=(owner_type or existing.get('owner_type', 'resident')),
+                        card_id=(card_id or existing.get('card_id', ''))
+                    )
                     updated += 1
                 else:
                     # 新增
-                    db.add_owner(name, phone, plate, car_type, slot_number, note)
+                    db.add_owner(
+                        name, phone, plate, car_type, slot_number, note,
+                        owner_type=owner_type or 'resident',
+                        card_id=card_id
+                    )
                     added += 1
             except Exception as e:
                 errors.append(f'第 {i+2} 行：{str(e)}')
@@ -911,6 +924,8 @@ def manual_open():
 @app.route('/api/check_plate', methods=['POST'])
 def check_plate():
     """車牌辨識系統回調：發現車牌後比對"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': '未登入'}), 401
     plate = request.json.get('plate', '').upper()
     image_path = request.json.get('image_path')
 
@@ -2293,9 +2308,25 @@ def api_engineer_verify():
         # 如果沒有設定工程商密碼，就不允許進入
         return jsonify({'success': False, 'error': '工程商密碼未設定'})
     
-    # 比對密碼
-    input_hash = hashlib.sha256(password.encode()).hexdigest()
-    if input_hash == stored_hash:
+    verified = False
+    
+    # 支援新舊兩種格式
+    if stored_hash.startswith('pbkdf2:'):
+        # 新格式：werkzeug pbkdf2
+        verified = check_password_hash(stored_hash, password)
+    else:
+        # 舊格式：SHA256（純 hex，64字元）→ 遷移到新格式
+        import re
+        if re.fullmatch(r'[a-f0-9]{64}', stored_hash):
+            input_hash = hashlib.sha256(password.encode()).hexdigest()
+            if input_hash == stored_hash:
+                # 密碼正確，自動升級為 werkzeug 新格式
+                new_hash = generate_password_hash(password)
+                db.set_setting('engineer_password_hash', new_hash)
+                logger.info('工程商密碼已自動升級為安全的 hash 格式')
+                verified = True
+    
+    if verified:
         session['engineer_mode'] = True
         return jsonify({'success': True})
     
@@ -2328,14 +2359,14 @@ def api_set_engineer_password():
     if 'user_id' not in session:
         return jsonify({'success': False, 'error': '未登入'})
     
-    import hashlib
     data = request.json
     password = data.get('password', '')
     
     if not password:
         return jsonify({'success': False, 'error': '密碼不能為空'})
     
-    password_hash = hashlib.sha256(password.encode()).hexdigest()
+    # 使用 werkzeug 安全 hash（pbkdf2 + salt，比 SHA256 安全）
+    password_hash = generate_password_hash(password)
     db.set_setting('engineer_password_hash', password_hash)
     
     return jsonify({'success': True, 'message': '工程商密碼已設定'})

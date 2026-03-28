@@ -1,7 +1,10 @@
 import sqlite3
 import os
+import logging
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
+
+logger = logging.getLogger(__name__)
 
 DATABASE = os.path.join(os.path.dirname(__file__), 'lpr.db')
 
@@ -220,6 +223,24 @@ def init_db():
             'INSERT INTO billing_rules (name, car_type, billing_type, monthly_fee) VALUES (?, ?, ?, ?)',
             ('月租戶', 'all', 'monthly', 3000)
         )
+
+    # ============ 效能索引（加快車牌查詢、過濾、統計）============
+    indexes = [
+        'CREATE INDEX IF NOT EXISTS idx_owners_plate ON owners(plate)',
+        'CREATE INDEX IF NOT EXISTS idx_owners_plate_active ON owners(plate, is_blacklist)',
+        'CREATE INDEX IF NOT EXISTS idx_records_plate ON records(plate)',
+        'CREATE INDEX IF NOT EXISTS idx_records_created ON records(created_at)',
+        'CREATE INDEX IF NOT EXISTS idx_parking_sessions_plate ON parking_sessions(plate)',
+        'CREATE INDEX IF NOT EXISTS idx_parking_sessions_status ON parking_sessions(status)',
+        'CREATE INDEX IF NOT EXISTS idx_parking_slots_number ON parking_slots(slot_number)',
+        'CREATE INDEX IF NOT EXISTS idx_visitor_passes_plate ON visitor_passes(plate, status)',
+        'CREATE INDEX IF NOT EXISTS idx_billing_status_date ON billing(payment_status, created_at)',
+    ]
+    for idx_sql in indexes:
+        try:
+            c.execute(idx_sql)
+        except Exception as e:
+            logger.error(f'建立索引失敗: {e} — {idx_sql}')
 
     conn.commit()
     conn.close()
