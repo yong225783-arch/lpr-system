@@ -2107,6 +2107,28 @@ def api_detect_plate():
                 # 不開門
                 continue
             
+            # 檢查租賃是否過期
+            expiry = owner.get('rental_expiry_date')
+            owner_type = owner.get('owner_type', '')
+            is_expired = False
+            if expiry and owner_type in ('resident', 'owner', 'tenant'):
+                try:
+                    from datetime import datetime
+                    expiry_date = datetime.strptime(expiry, '%Y-%m-%d').date()
+                    if datetime.now().date() > expiry_date:
+                        is_expired = True
+                except:
+                    pass
+            
+            if is_expired:
+                add_alert('warning', f'⚠️ 租賃已過期：{plate}（{owner.get("name", "未知")}，到期日：{expiry}）')
+                # 允許進場但記錄為已過期
+                if relay:
+                    relay.open_gate()
+                db.add_record(plate, owner.get('name'), f'⚠️ 已過期({expiry})', filepath, direction='in')
+                logger.warning(f'車牌 {plate} 租賃已過期，到期日：{expiry}，已開門')
+                continue
+            
             matched_owner = owner
             matched_plate = plate
             # 找到匹配的車牌，開門
