@@ -129,6 +129,9 @@ def restore_database(backup_file):
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
+app.config['SESSION_COOKIE_SECURE'] = False  # 區網 HTTP 相容
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
 
 # ============ Context Processor ============
@@ -144,6 +147,14 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+try:
+    from logging.handlers import RotatingFileHandler
+    log_file = os.environ.get('LOG_FILE', 'lpr.log')
+    rh = RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=5, encoding='utf-8')
+    rh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logging.root.addHandler(rh)
+except Exception:
+    pass
 logger = logging.getLogger(__name__)
 
 # ============ LPR Module ============
