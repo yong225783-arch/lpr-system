@@ -606,13 +606,13 @@ def owners_add():
     note = request.form.get('note', '').strip()
     member_id = request.form.get('member_id', '').strip()
     rental_expiry_date = request.form.get('rental_expiry_date', '').strip()
-    rental_expiry_date = request.form.get('rental_expiry_date', '').strip()
     if not name or not plate:
         flash('姓名和車牌必填', 'error')
     else:
         owner_id = request.form.get('id', '').strip()
         owner_id = int(owner_id) if owner_id else None
-        ok, msg = db.add_owner(name, phone, plate, car_type, slot_number, note, owner_id, member_id, owner_type, card_id, rental_expiry_date or None)
+        rental_start_date = request.form.get('rental_start_date', '').strip()
+        ok, msg = db.add_owner(name, phone, plate, car_type, slot_number, note, owner_id, member_id, owner_type, card_id, rental_start_date or None, rental_expiry_date or None)
         if not ok:
             flash(msg, 'error')
     return redirect(url_for('owners'))
@@ -631,7 +631,8 @@ def owners_edit(owner_id):
     note = request.form.get('note', '').strip()
     member_id = request.form.get('member_id', '').strip()
     is_blacklist = 1 if request.form.get('is_blacklist') else 0
-    ok, msg = db.update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist, member_id, owner_type, card_id, rental_expiry_date or None)
+    rental_expiry_date = request.form.get('rental_expiry_date', '').strip()
+    ok, msg = db.update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist, member_id, owner_type, card_id, rental_start_date or None, rental_expiry_date or None)
     if not ok:
         flash(msg, 'error')
     return redirect(url_for('owners'))
@@ -1131,6 +1132,11 @@ def settings_save():
     if engineer_hash and not session.get('engineer_mode'):
         return redirect(url_for('login'))
     section = request.form.get('section')
+    # 工程商密碼保護（密碼變更除外：用戶只能改自己的密碼）
+    if section != 'password':
+        engineer_hash = db.get_setting('engineer_password_hash', '')
+        if engineer_hash and not session.get('engineer_mode'):
+            return redirect(url_for('login'))
     if section == 'camera':
         import json
         db.set_setting('camera_in_url', request.form.get('camera_in_url', ''))
