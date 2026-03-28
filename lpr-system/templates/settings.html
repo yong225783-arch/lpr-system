@@ -275,13 +275,14 @@
             
             <div class="form-group">
                 <label>OCR 引擎</label>
-                <select name="ocr_engine" id="ocr-engine-select" onchange="toggleOllamaFields()">
+                <select name="ocr_engine" id="ocr-engine-select" onchange="toggleOllamaFields(); toggleUlrixonFields()">
                     <option value="easyocr" {% if ocr_engine == 'easyocr' %}selected{% endif %}>EasyOCR（推薦）</option>
                     <option value="paddle" {% if ocr_engine == 'paddle' %}selected{% endif %}>PaddleOCR</option>
                     <option value="tesseract" {% if ocr_engine == 'tesseract' %}selected{% endif %}>Tesseract</option>
                     <option value="both" {% if ocr_engine == 'both' %}selected{% endif %}>兩者都用（最準）</option>
                     <option value="ollama" {% if ocr_engine == 'ollama' %}selected{% endif %}>Ollama VLM（需安裝）</option>
                     <option value="hybrid" {% if ocr_engine == 'hybrid' %}selected{% endif %}>Ollama + EasyOCR（最佳）</option>
+                    <option value="ulrixon" {% if ocr_engine == 'ulrixon' %}selected{% endif %}>Ulrixon 兩階段（台灣車牌專用）</option>
                 </select>
                 <small>切換 OCR 引擎看看哪個對你的車牌比較準</small>
             </div>
