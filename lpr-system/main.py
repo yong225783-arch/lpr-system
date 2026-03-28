@@ -300,7 +300,7 @@ class PlateRecognizer:
                     if now - self.last_plate_time > self.cooldown:
                         self.last_plate_time = now
                         if callback:
-                            callback(frame, self.last_plate)
+                            callback(frame, plate)
 
                 time.sleep(0.05)
 
@@ -1520,30 +1520,6 @@ def ocr_with_easyocr(image_path):
     except Exception as e:
         logger.error(f'OCR failed: {e}')
         return []
-        
-        texts = []
-        
-        # Tesseract 結果
-        if tess_text:
-            texts.append({
-                'text': tess_text,
-                'confidence': 0.8
-            })
-        
-        # EasyOCR 結果
-        if result:
-            for line in result:
-                bbox, text, conf = line
-                texts.append({
-                    'text': text.strip(),
-                    'confidence': round(conf, 2)
-                })
-        
-        logger.info(f'OCR 找到了 {len(texts)} 個文字: {[t["text"] for t in texts]}')
-        return texts
-    except Exception as e:
-        logger.error(f'OCR failed: {e}')
-        return []
 
 def ocr_crop_with_easyocr(crop_img):
     """對裁剪後的車牌區域使用 OCR 辨識（加強版）"""
@@ -2189,6 +2165,7 @@ def api_billing_unpaid():
         'count': len(unpaid)
     })
 
+@app.route('/api/billing/stats')
 def api_billing_stats():
     """取得帳單統計"""
     today = datetime.now().strftime('%Y-%m-%d')
@@ -2645,4 +2622,4 @@ if __name__ == '__main__':
     print('  預設帳號: admin')
     print('  預設密碼: admin123')
     print('=' * 50)
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=(os.environ.get('FLASK_DEBUG', '').lower() in ('1', 'true', 'yes')))
