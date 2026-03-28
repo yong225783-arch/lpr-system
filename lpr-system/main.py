@@ -590,7 +590,8 @@ def owners():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     owners_list = db.get_owners()
-    return render_template('owners.html', owners=owners_list)
+    now_date = datetime.now().strftime('%Y-%m-%d')
+    return render_template('owners.html', owners=owners_list, now_date=now_date)
 
 @app.route('/owners/add', methods=['POST'])
 def owners_add():
@@ -1324,7 +1325,7 @@ def ocr_with_ulrixon(image_path):
 
         # Stage 1: 車牌偵測
         bbox_model = get_ulrixon_bbox_model()
-        results = bbox_model(img, conf=0.25, verbose=False)
+        results = bbox_model(img, conf=0.1, verbose=False)
         
         if not results or not results[0].boxes:
             return []
@@ -1986,11 +1987,11 @@ def api_detect_plate():
         elif ocr_engine == 'tesseract':
             ocr_texts = ocr_crop_with_tesseract(transformed)
         elif ocr_engine == 'ulrixon':
-            # 兩階段模型一次完成車牌偵測+OCR
+            # Ulrixon 兩階段：自己偵測車牌（忽略已crop的圖，直接用原圖）
+            # 但如果 YOLO 找到了 crops，仍用 crops 做 OCR
             ulrixon_results = ocr_with_ulrixon(image_path)
             ocr_texts.extend(ulrixon_results)
             if not ocr_texts:
-                # fallback to easyocr
                 easy_results = ocr_crop_with_easyocr(transformed)
                 ocr_texts.extend(easy_results)
         elif ocr_engine == 'paddle':
@@ -2010,7 +2011,21 @@ def api_detect_plate():
             'possible_plates': plates
         })
         all_ocr_texts.extend(ocr_texts)
-        logger.info(f'  {pc["vehicle_type"]} 區域 EasyOCR: {plates}')
+        logger.info(f'  {pc["vehicle_type"]} 區域 OCR: {plates}')
+    
+    # Step 2.5: 如果 YOLO 找到 0 個車牌但選了 ulrixon，直接用 ulrixon 全圖偵測
+    if not plate_crops and ocr_engine == 'ulrixon':
+        logger.info('YOLO 未偵測到車牌，改用 Ulrixon 兩階段全圖偵測')
+        ulrixon_results = ocr_with_ulrixon(filepath)
+        if ulrixon_results:
+            all_ocr_texts.extend(ulrixon_results)
+            plate_results.append({
+                'vehicle_type': 'Ulrixon',
+                'vehicle_conf': 1.0,
+                'bbox': None,
+                'ocr_texts': ulrixon_results,
+                'possible_plates': filter_plate_text(ulrixon_results)
+            })
     
     # Step 3: 對全圖做 OCR（根據設定選擇引擎）
     if ocr_engine == 'ollama':

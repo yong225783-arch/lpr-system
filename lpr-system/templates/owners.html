@@ -29,7 +29,7 @@
         </thead>
         <tbody id="owners-tbody">
             {% for o in owners %}
-            <tr class="{% if o.is_blacklist %}row-danger{% endif %}" data-blacklist="{{ o.is_blacklist }}" data-owner-type="{{ o.owner_type }}" data-expiry="{{ o.rental_expiry_date or "" }}" data-name="{{ o.name }}" data-plate="{{ o.plate }}">
+            <tr class="{% if o.is_blacklist %}row-danger{% elif o.owner_type in ('resident', 'owner', 'tenant') and o.rental_expiry_date and o.rental_expiry_date < now_date %}row-danger{% endif %}" data-blacklist="{{ o.is_blacklist }}" data-owner-type="{{ o.owner_type }}" data-expiry="{{ o.rental_expiry_date or "" }}" data-name="{{ o.name }}" data-plate="{{ o.plate }}">
                 <td>{{ o.member_id or o.id }}</td>
                 <td>{{ o.name }}</td>
                 <td>{{ o.phone or '-' }}</td>
@@ -60,8 +60,14 @@
                     {% endif %}
                 </td>
                 <td>
-                    <span class="badge badge-{% if o.is_blacklist %}danger{% else %}success{% endif %}">
-                        {% if o.is_blacklist %}🚫 黑名单{% else %}✅ 正常{% endif %}
+                    {% set is_expired = false %}
+                    {% if o.owner_type in ('resident', 'owner', 'tenant') and o.rental_expiry_date %}
+                        {% if o.rental_expiry_date < now_date %}
+                            {% set is_expired = true %}
+                        {% endif %}
+                    {% endif %}
+                    <span class="badge badge-{% if o.is_blacklist %}danger{% elif is_expired %}warning{% else %}success{% endif %}">
+                        {% if o.is_blacklist %}🚫 黑名單{% elif is_expired %}⚠️ 已過期{% else %}✅ 正常{% endif %}
                     </span>
                 </td>
                 <td>
