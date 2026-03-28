@@ -17,7 +17,7 @@ from flask import (
     Flask, render_template, request, redirect,
     url_for, session, jsonify, send_file, flash, make_response
 )
-from werkzeug.security import generate_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # 設定時區為台北
 os.environ['TZ'] = 'Asia/Taipei'
@@ -631,6 +631,7 @@ def owners_edit(owner_id):
     note = request.form.get('note', '').strip()
     member_id = request.form.get('member_id', '').strip()
     is_blacklist = 1 if request.form.get('is_blacklist') else 0
+    rental_start_date = request.form.get('rental_start_date', '').strip()
     rental_expiry_date = request.form.get('rental_expiry_date', '').strip()
     ok, msg = db.update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist, member_id, owner_type, card_id, rental_start_date or None, rental_expiry_date or None)
     if not ok:
