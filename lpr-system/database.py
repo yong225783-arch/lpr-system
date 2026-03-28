@@ -178,6 +178,18 @@ def init_db():
     except:
         pass
 
+    # Migration: records 表加進出口方向
+    try:
+        c.execute("ALTER TABLE records ADD COLUMN direction TEXT DEFAULT 'in'")
+    except:
+        pass
+
+    # Migration: parking_sessions 表加進出口方向
+    try:
+        c.execute("ALTER TABLE parking_sessions ADD COLUMN direction TEXT DEFAULT 'in'")
+    except:
+        pass
+
     # 訪客通行證表（如果還沒有）
     try:
         c.execute('''
@@ -304,11 +316,11 @@ def update_record_note(record_id, note):
 
 # ============ 開門紀錄 ============
 
-def add_record(plate, owner_name, result, image_path=None, note=''):
+def add_record(plate, owner_name, result, image_path=None, note='', direction='in'):
     conn = get_db()
     conn.execute(
-        'INSERT INTO records (plate, owner_name, result, image_path, note) VALUES (?, ?, ?, ?, ?)',
-        (plate, owner_name, result, image_path, note)
+        'INSERT INTO records (plate, owner_name, result, image_path, note, direction) VALUES (?, ?, ?, ?, ?, ?)',
+        (plate, owner_name, result, image_path, note, direction)
     )
     conn.commit()
     conn.close()
@@ -476,7 +488,7 @@ def free_slot(slot_number):
 
 # ============ 停車 Session 管理 ============
 
-def create_parking_session(plate, slot_number=None, owner_id=None):
+def create_parking_session(plate, slot_number=None, owner_id=None, direction='in'):
     conn = get_db()
     # 檢查是否已有進行中的 session
     existing = conn.execute(
@@ -489,8 +501,8 @@ def create_parking_session(plate, slot_number=None, owner_id=None):
         return None, '此車牌已有進行中的停車記錄'
     
     conn.execute(
-        'INSERT INTO parking_sessions (plate, slot_number, owner_id, entry_time, status) VALUES (?, ?, ?, ?, ?)',
-        (plate, slot_number, owner_id, datetime.now(), 'parking')
+        'INSERT INTO parking_sessions (plate, slot_number, owner_id, entry_time, status, direction) VALUES (?, ?, ?, ?, ?, ?)',
+        (plate, slot_number, owner_id, datetime.now(), 'parking', direction)
     )
     conn.commit()
     session_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]

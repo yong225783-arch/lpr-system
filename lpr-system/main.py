@@ -934,7 +934,11 @@ def settings():
         ocr_engine=db.get_setting('ocr_engine', 'easyocr'),
         ollama_url=db.get_setting('ollama_url', 'http://localhost:11434'),
         ollama_model=db.get_setting('ollama_model', 'llava'),
-        project_name=db.get_setting('project_name', '車牌辨識開門系統')
+        project_name=db.get_setting('project_name', '車牌辨識開門系統'),
+        # 新功能設定
+        auto_parking_session=db.get_setting('auto_parking_session', 'false'),
+        auto_assign_slot=db.get_setting('auto_assign_slot', 'false'),
+        record_direction=db.get_setting('record_direction', 'true')
     )
 
 # ============ 資料庫備份 ============
@@ -1079,6 +1083,15 @@ def settings_save():
         db.set_setting('ollama_url', request.form.get('ollama_url', 'http://localhost:11434'))
         db.set_setting('ollama_model', request.form.get('ollama_model', 'llava'))
         flash('車牌辨識微調設定已儲存', 'success')
+    elif section == 'features':
+        # 新功能設定
+        auto_session = 'true' if request.form.get('auto_parking_session') else 'false'
+        auto_slot = 'true' if request.form.get('auto_assign_slot') else 'false'
+        record_dir = 'true' if request.form.get('record_direction') else 'false'
+        db.set_setting('auto_parking_session', auto_session)
+        db.set_setting('auto_assign_slot', auto_slot)
+        db.set_setting('record_direction', record_dir)
+        flash('功能設定已儲存', 'success')
     elif section == 'project':
         db.set_setting('project_name', request.form.get('project_name', '車牌辨識開門系統'))
         flash('系統資訊已儲存', 'success')
@@ -1842,7 +1855,7 @@ def api_detect_plate():
             if owner.get('is_blacklist'):
                 is_blacklisted = True
                 add_alert('danger', f'🚫 黑名單車輛出現：{plate}（{owner.get("name", "未知")}）')
-                db.add_record(plate, owner.get('name'), '⚠️ 黑名單車輛', filepath)
+                db.add_record(plate, owner.get('name'), '⚠️ 黑名單車輛', filepath, direction='in')
                 logger.warning(f'黑名單車輛 {plate} 被偵測到！')
                 # 不開門
                 continue
@@ -1852,10 +1865,16 @@ def api_detect_plate():
             # 找到匹配的車牌，開門
             if relay:
                 relay.open_gate()
-            db.add_record(plate, owner['name'], '✅ 允許進場', filepath)
+            db.add_record(plate, owner['name'], '✅ 允許進場', filepath, direction='in')
             logger.info(f'車牌 {plate} 比對成功，{owner["name"]} 已開門')
+
+            # 自動建立停車記錄（如果功能開啟）
+            if db.get_setting('auto_parking_session', 'false') == 'true':
+                db.create_parking_session(plate, owner_id=owner.get('id'), direction='in')
+                logger.info(f'已自動建立停車記錄：{plate}')
+
             break
-    
+
     # 如果沒有匹配到車主，檢查是否有有效的訪客通行證
     if not matched_plate:
         for plate in combined_plates:
@@ -1864,7 +1883,7 @@ def api_detect_plate():
                 matched_plate = plate
                 if relay:
                     relay.open_gate()
-                db.add_record(plate, visitor_pass.get('visitor_name', '訪客'), '✅ 訪客通行', filepath)
+                db.add_record(plate, visitor_pass.get('visitor_name', '訪客'), '✅ 訪客通行', filepath, direction='in')
                 db.use_visitor_pass(visitor_pass['id'])  # 標記為已使用
                 logger.info(f'車牌 {plate} 持有有效訪客通行證，已開門')
                 add_alert('info', f'👋 訪客通行：{plate}（{visitor_pass.get("visitor_name", "未知")}）')
@@ -1873,7 +1892,7 @@ def api_detect_plate():
     # 如果都沒有匹配，記錄為不在白名單
     if not matched_plate and combined_plates:
         best_plate = combined_plates[0]
-        db.add_record(best_plate, None, f'❌ {best_plate} 不在白名單', filepath)
+        db.add_record(best_plate, None, f'❌ {best_plate} 不在白名單', filepath, direction='in')
     
     # 計算平均 OCR 信心度
     avg_conf = 0

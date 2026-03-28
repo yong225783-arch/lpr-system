@@ -140,6 +140,33 @@
             <button type="submit" class="btn-primary">儲存設定</button>
         </form>
 
+        <!-- 新功能設定 -->
+        <div style="margin-top: 1.5rem; padding: 1rem; background: #e8f5e9; border-radius: 8px;">
+            <h3>⚙️ 新功能設定</h3>
+            <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 1rem;">未來社區擴充功能，現在可以先開啟</p>
+            <form method="POST" action="/settings/save" style="display: inline;">
+                <input type="hidden" name="section" value="features">
+                <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" name="record_direction" value="true" {% if record_direction == 'true' %}checked{% endif %}>
+                        <span>📝 記錄進出口方向</span>
+                        <small style="color: #888;">（開門記錄會區分「入口」或「出口」）</small>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" name="auto_parking_session" value="true" {% if auto_parking_session == 'true' %}checked{% endif %}>
+                        <span>🚗 自動建立停車記錄</span>
+                        <small style="color: #888;">（車輛進場時自動建立停車Session）</small>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" name="auto_assign_slot" value="true" {% if auto_assign_slot == 'true' %}checked{% endif %}>
+                        <span>🅿️ 自動分配車位</span>
+                        <small style="color: #888;">（車輛進場時自動分配空車位）</small>
+                    </label>
+                </div>
+                <button type="submit" class="btn-primary" style="margin-top: 1rem;">儲存功能設定</button>
+            </form>
+        </div>
+
         <div style="margin-top: 1.5rem; padding: 1rem; background: #f0fdf4; border-radius: 8px;">
             <h3>🔑 測試開門</h3>
             <p style="font-size: 0.9rem; color: #64748b;">按下測試按鈕，繼電器會發送一次開門信號</p>
