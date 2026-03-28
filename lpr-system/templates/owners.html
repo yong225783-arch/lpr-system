@@ -7,6 +7,7 @@
     <div style="display:flex; gap:10px;">
         <button class="btn-primary" onclick="showAddModal()">+ 新增車主</button>
         <a href="/api/owners/export" class="btn-success">📥 匯出 CSV</a>
+        <button class="btn-primary" onclick="showImportModal()">📤 匯入 CSV</button>
         <button class="btn-warning" onclick="showBlacklistedOnly()" id="btn-blacklist-filter">🚫 顯示黑名單</button>
     </div>
 </div>
@@ -137,7 +138,27 @@
         </form>
     </div>
 </div>
-{% endblock %}
+
+<!-- 匯入 CSV Modal -->
+<div id="importModal" class="modal" style="display:none">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>📤 匯入車主 CSV</h2>
+            <span class="modal-close" onclick="closeImportModal()">&times;</span>
+        </div>
+        <div style="padding: 1rem;">
+            <p style="margin-bottom: 1rem;">選擇 CSV 檔案（格式：ID,車牌,姓名,電話,車型,車位,備註）</p>
+            <form id="importForm" enctype="multipart/form-data">
+                <input type="file" name="file" accept=".csv" id="importFile" style="margin-bottom: 1rem;">
+                <div id="importResult" style="margin-top: 1rem;"></div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" onclick="closeImportModal()">取消</button>
+                    <button type="button" class="btn-primary" onclick="submitImport()">匯入</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>{% endblock %}
 
 {% block scripts %}
 <script>
@@ -175,6 +196,51 @@ function editOwner(o) {
 
 function closeModal() {
     document.getElementById('ownerModal').style.display = 'none';
+}
+
+function showImportModal() {
+    document.getElementById('importFile').value = '';
+    document.getElementById('importResult').innerHTML = '';
+    document.getElementById('importModal').style.display = 'block';
+}
+
+function closeImportModal() {
+    document.getElementById('importModal').style.display = 'none';
+}
+
+function submitImport() {
+    const fileInput = document.getElementById('importFile');
+    const file = fileInput.files[0];
+    if (!file) {
+        alert('請選擇 CSV 檔案');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    document.getElementById('importResult').innerHTML = '<span style="color:#666">匯入中...</span>';
+    
+    fetch('/api/owners/import', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        const resultDiv = document.getElementById('importResult');
+        if (data.success) {
+            resultDiv.innerHTML = '<span style="color:#28a745">✅ ' + data.message + '</span>';
+            if (data.errors && data.errors.length > 0) {
+                resultDiv.innerHTML += '<div style="margin-top:0.5rem; font-size:0.9rem; color:#dc3545;">錯誤：' + data.errors.join('<br>') + '</div>';
+            }
+            setTimeout(() => { location.reload(); }, 1500);
+        } else {
+            resultDiv.innerHTML = '<span style="color:#dc3545">❌ ' + data.message + '</span>';
+        }
+    })
+    .catch(e => {
+        document.getElementById('importResult').innerHTML = '<span style="color:#dc3545">❌ 匯入失敗：' + e + '</span>';
+    });
 }
 
 function removeBlacklist(ownerId) {

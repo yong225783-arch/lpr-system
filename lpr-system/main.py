@@ -341,6 +341,7 @@ if not camera_in_url and not camera_out_url:
     logger.info('使用預設 Webcam 0 作為進口攝影機')
 
 # 嘗試連接繼電器
+relay_type = os.environ.get('RELAY_TYPE', '')
 relay_port = os.environ.get('RELAY_PORT', None)
 simulate_relay = os.environ.get('SIMULATE_RELAY', '').lower() in ('1', 'true', 'yes')
 
@@ -820,6 +821,70 @@ def api_owners_export():
     response.headers['Content-Type'] = 'text/csv; charset=utf-8'
     response.headers['Content-Disposition'] = f'attachment; filename=owners_{datetime.now().strftime("%Y%m%d")}.csv'
     return response
+
+@app.route('/api/owners/import', methods=['POST'])
+def api_owners_import():
+    """匯入車主 CSV"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'message': '沒有上傳檔案'})
+    
+    file = request.files['file']
+    if not file.filename.endswith('.csv'):
+        return jsonify({'success': False, 'message': '只接受 CSV 檔案'})
+    
+    try:
+        import csv
+        import io
+        stream = io.TextIOWrapper(file.stream, encoding='utf-8-sig')
+        reader = csv.reader(stream)
+        next(reader)  # 跳過標題列
+        
+        added = 0
+        updated = 0
+        errors = []
+        
+        for i, row in enumerate(reader):
+            if len(row) < 4:
+                errors.append(f'第 {i+2} 行：資料不足')
+                continue
+            
+            try:
+                # ID,車牌,姓名,電話,車型,車位,備註
+                owner_id = row[0].strip() if row[0] else None
+                plate = row[1].strip().upper().replace('·', '')
+                name = row[2].strip()
+                phone = row[3].strip() if len(row) > 3 else ''
+                car_type = row[4].strip() if len(row) > 4 else '轎車'
+                slot_number = row[5].strip() if len(row) > 5 else ''
+                note = row[6].strip() if len(row) > 6 else ''
+                
+                if not plate or not name:
+                    errors.append(f'第 {i+2} 行：車牌或姓名為空')
+                    continue
+                
+                # 檢查是否已存在
+                existing = db.get_owner_by_plate(plate)
+                if existing:
+                    # 更新
+                    db.update_owner(existing['id'], name, phone, plate, car_type, slot_number, note, existing.get('is_blacklist', 0))
+                    updated += 1
+                else:
+                    # 新增
+                    db.add_owner(name, phone, plate, car_type, slot_number, note)
+                    added += 1
+            except Exception as e:
+                errors.append(f'第 {i+2} 行：{str(e)}')
+        
+        message = f'匯入完成：新增 {added} 筆，更新 {updated} 筆'
+        if errors:
+            message += f'，錯誤 {len(errors)} 筆'
+        
+        return jsonify({'success': True, 'message': message, 'errors': errors[:10]})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'匯入失敗：{str(e)}'})
 
 # --- 手動開門 ---
 
