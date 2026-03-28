@@ -70,6 +70,17 @@ def clear_login_attempts(ip):
     if ip in login_attempts:
         del login_attempts[ip]
 
+def engineer_required(f):
+    """裝飾器：需要工程商密碼驗證"""
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        engineer_hash = db.get_setting('engineer_password_hash', '')
+        if engineer_hash and not session.get('engineer_mode'):
+            return jsonify({'success': False, 'error': '需要工程商驗證'}), 403
+        return f(*args, **kwargs)
+    return decorated
+
 # ============ 資料庫備份 ============
 
 def backup_database():
@@ -189,6 +200,43 @@ class PlateRecognizer:
                 break
         return plate_contour
 
+    def _apply_roi(self, frame, mode='in'):
+        """根據 ROI 設定裁切畫面（支援多區域，取第一區）"""
+        import json
+        key = f'camera_{mode}_roi'
+        roi_str = db.get_setting(key, '')
+        if not roi_str:
+            return frame
+        try:
+            data = json.loads(roi_str)
+            # 支援新格式（zones 列表）和舊格式（直接 roi 物件）
+            if isinstance(data, dict) and 'zones' in data:
+                zones = data['zones']
+            elif isinstance(data, list):
+                zones = data
+            else:
+                zones = [data]
+
+            if not zones:
+                return frame
+            roi = zones[0]
+            x = int(roi.get('x', 0))
+            y = int(roi.get('y', 0))
+            w = int(roi.get('w', 100))
+            h = int(roi.get('h', 100))
+            if w >= 100 and h >= 100 and x == 0 and y == 0:
+                return frame
+            h_img, w_img = frame.shape[:2]
+            x1 = int(w_img * x / 100)
+            y1 = int(h_img * y / 100)
+            x2 = int(w_img * (x + w) / 100)
+            y2 = int(h_img * (y + h) / 100)
+            x1, x2 = max(0, x1), min(w_img, x2)
+            y1, y2 = max(0, y1), min(h_img, y2)
+            return frame[y1:y2, x1:x2]
+        except:
+            return frame
+
     def process_frame(self, frame):
         """處理單一幀，嘗試辨識車牌"""
         edged = self.preprocess(frame)
@@ -219,16 +267,23 @@ class PlateRecognizer:
         if not ret:
             return None
 
+        frame = self._apply_roi(frame, mode)
         return frame
 
-    def start_continuous(self, callback):
+    def start_continuous(self, mode='in', callback=None):
         """連續偵測執行緒"""
         def run():
+            camera = self.get_camera(mode)
             while self.running:
-                ret, frame = self.camera.read()
+                if not camera or not camera.isOpened():
+                    time.sleep(0.1)
+                    continue
+                ret, frame = camera.read()
                 if not ret:
                     time.sleep(0.1)
                     continue
+
+                frame = self._apply_roi(frame, mode)
 
                 # 車牌辨識流程
                 processed, plate = self.process_frame(frame)
@@ -237,7 +292,8 @@ class PlateRecognizer:
                     now = time.time()
                     if now - self.last_plate_time > self.cooldown:
                         self.last_plate_time = now
-                        callback(frame, self.last_plate)
+                        if callback:
+                            callback(frame, self.last_plate)
 
                 time.sleep(0.05)
 
@@ -247,8 +303,10 @@ class PlateRecognizer:
 
     def stop(self):
         self.running = False
-        if self.camera:
-            self.camera.release()
+        if self.camera_in:
+            self.camera_in.release()
+        if self.camera_out:
+            self.camera_out.release()
 
 # ============ 初始化 ============
 
@@ -290,6 +348,18 @@ if simulate_relay:
     from relay import RelayController
     relay = RelayController(simulate=True)
     logger.info('繼電器：模擬模式（無硬體）')
+elif relay_type == 'modbus_tcp':
+    relay_modbus_ip = db.get_setting('relay_modbus_ip', '')
+    relay_modbus_port = int(db.get_setting('relay_modbus_port', 502))
+    relay_modbus_coil = int(db.get_setting('relay_modbus_coil', 0))
+    if relay_modbus_ip:
+        from relay import ModbusTCPController
+        relay = ModbusTCPController(ip=relay_modbus_ip, port=relay_modbus_port, coil=relay_modbus_coil)
+        logger.info(f'繼電器：Modbus TCP {relay_modbus_ip}:{relay_modbus_port} coil={relay_modbus_coil}')
+    else:
+        from relay import RelayController
+        relay = RelayController(simulate=True)
+        logger.info('繼電器：模擬模式（無 IP）')
 elif relay_port:
     from relay import RelayController
     relay = RelayController(port=relay_port)
@@ -338,6 +408,81 @@ def serve_capture(filename):
     """提供 captures 資料夾中的圖片"""
     from flask import send_from_directory
     return send_from_directory('captures', filename)
+
+# ============ ROI 視覺化編輯器 ============
+
+@app.route('/roi-editor/<mode>')
+def roi_editor(mode='in'):
+    """ROI 區域設定視覺化編輯器"""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    if mode not in ('in', 'out'):
+        mode = 'in'
+    
+    camera_url = db.get_setting(f'camera_{mode}_url', '')
+    snapshot_url = None
+    has_stream = False
+    
+    if camera_url:
+        try:
+            cap = cv2.VideoCapture(camera_url)
+            if cap.isOpened():
+                has_stream = True
+                ret, frame = cap.read()
+                if ret:
+                    # 縮小以免太大
+                    scale = min(1.0, 900 / frame.shape[1])
+                    if scale < 1:
+                        frame = cv2.resize(frame, (0, 0), fx=scale, fy=scale)
+                    _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                    import base64
+                    snapshot_url = 'data:image/jpeg;base64,' + base64.b64encode(buf).decode('utf-8')
+                cap.release()
+        except Exception as e:
+            logger.error(f'ROI editor snapshot failed: {e}')
+    
+    return render_template('roi_editor.html',
+        mode=mode,
+        snapshot_url=snapshot_url,
+        has_stream=has_stream,
+        timestamp=datetime.now().strftime('%H%M%S')
+    )
+
+@app.route('/api/roi/<mode>', methods=['POST'])
+def api_save_roi(mode='in'):
+    """儲存 ROI 設定（支援多區域）"""
+    if 'user_id' not in session:
+        return jsonify({'success': False}), 401
+    import json
+    data = request.get_json() if request.is_json else {}
+    zones = data.get('zones', [])
+    if not zones:
+        # 相容舊版（表單格式）
+        roi = {
+            'x': float(request.form.get('roi_x', 0)),
+            'y': float(request.form.get('roi_y', 0)),
+            'w': float(request.form.get('roi_w', 100)),
+            'h': float(request.form.get('roi_h', 100))
+        }
+        zones = [roi]
+    db.set_setting(f'camera_{mode}_roi', json.dumps({'zones': zones}))
+    return jsonify({'success': True})
+
+@app.route('/api/roi/<mode>', methods=['GET'])
+def api_get_roi(mode='in'):
+    """取得 ROI 設定"""
+    if 'user_id' not in session:
+        return jsonify({'success': False}), 401
+    import json
+    val = db.get_setting(f'camera_{mode}_roi', '')
+    if val:
+        try:
+            data = json.loads(val)
+            return jsonify(data)
+        except:
+            pass
+    return jsonify({'zones': []})
+
 
 @app.route('/api/camera_status/<mode>')
 def api_camera_status(mode='in'):
@@ -394,6 +539,7 @@ def login():
 
 @app.route('/logout')
 def logout():
+    session.pop('engineer_mode', None)
     session.clear()
     return redirect(url_for('login'))
 
@@ -413,6 +559,7 @@ def owners_add():
     name = request.form.get('name', '').strip()
     phone = request.form.get('phone', '').strip()
     plate = request.form.get('plate', '').strip().upper()
+    card_id = request.form.get('card_id', '').strip()
     car_type = request.form.get('car_type', '轎車').strip()
     owner_type = request.form.get('owner_type', 'resident').strip()
     slot_number = request.form.get('slot_number', '').strip()
@@ -423,7 +570,7 @@ def owners_add():
     else:
         owner_id = request.form.get('id', '').strip()
         owner_id = int(owner_id) if owner_id else None
-        ok, msg = db.add_owner(name, phone, plate, car_type, slot_number, note, owner_id, member_id, owner_type)
+        ok, msg = db.add_owner(name, phone, plate, car_type, slot_number, note, owner_id, member_id, owner_type, card_id)
         if not ok:
             flash(msg, 'error')
     return redirect(url_for('owners'))
@@ -435,13 +582,14 @@ def owners_edit(owner_id):
     name = request.form.get('name', '').strip()
     phone = request.form.get('phone', '').strip()
     plate = request.form.get('plate', '').strip().upper()
+    card_id = request.form.get('card_id', '').strip()
     car_type = request.form.get('car_type', '轎車').strip()
     owner_type = request.form.get('owner_type', 'resident').strip()
     slot_number = request.form.get('slot_number', '').strip()
     note = request.form.get('note', '').strip()
     member_id = request.form.get('member_id', '').strip()
     is_blacklist = 1 if request.form.get('is_blacklist') else 0
-    ok, msg = db.update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist, member_id, owner_type)
+    ok, msg = db.update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist, member_id, owner_type, card_id)
     if not ok:
         flash(msg, 'error')
     return redirect(url_for('owners'))
@@ -547,7 +695,8 @@ def api_records_export():
     for r in records:
         csv_lines.append(f'{r["id"]},{r["created_at"]},{r["plate"]},{r["owner_name"] or ""},{r["result"]},{r["note"] or ""}')
     
-    csv_content = '\n'.join(csv_lines)
+    # 生成 CSV（加入 BOM 確保 Excel 正確顯示中文）
+    csv_content = '\ufeff' + '\n'.join(csv_lines)
     
     response = make_response(csv_content)
     response.headers['Content-Type'] = 'text/csv; charset=utf-8'
@@ -630,12 +779,27 @@ def api_billing_export():
     for b in billings:
         csv_lines.append(f'{b["id"]},{b["plate"]},{b["owner_name"] or ""},{b["amount"]},{b["duration_minutes"]},{b["entry_time"]},{b["exit_time"]},{b["payment_method"]},{b["payment_status"]},{b["note"] or ""}')
     
-    csv_content = '\n'.join(csv_lines)
+    csv_content = '\ufeff' + '\n'.join(csv_lines)
     
     response = make_response(csv_content)
     response.headers['Content-Type'] = 'text/csv; charset=utf-8'
     response.headers['Content-Disposition'] = f'attachment; filename=billings_{datetime.now().strftime("%Y%m%d")}.csv'
     return response
+
+@app.route('/api/owners')
+def api_owners():
+    """取得所有車主資料（含車位）"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    owners = db.get_owners()
+    # 加入車位資訊（從 parking_slots 查找）
+    result = []
+    for o in owners:
+        o = dict(o)
+        slot = db.get_slot_by_owner_id(o['id'])
+        o['slot_number'] = slot['slot_number'] if slot else None
+        result.append(o)
+    return jsonify(result)
 
 @app.route('/api/owners/export')
 def api_owners_export():
@@ -650,7 +814,7 @@ def api_owners_export():
     for o in owners:
         csv_lines.append(f'{o["id"]},{o["plate"]},{o["name"]},{o["phone"] or ""},{o["car_type"]},{o["slot_number"] or ""},{o["note"] or ""}')
     
-    csv_content = '\n'.join(csv_lines)
+    csv_content = '\ufeff' + '\n'.join(csv_lines)
     
     response = make_response(csv_content)
     response.headers['Content-Type'] = 'text/csv; charset=utf-8'
@@ -680,7 +844,7 @@ def check_plate():
 
     owner = db.get_owner_by_plate(plate)
     if owner:
-        result = '已授權'
+        result = f'✅ 允許進場'
         if relay:
             relay.open_gate()
         if image_path:
@@ -689,7 +853,7 @@ def check_plate():
             db.add_record(plate, owner['name'], result)
         return jsonify({'allowed': True, 'owner': owner['name']})
     else:
-        result = '未授權'
+        result = f'❌ {plate} 不在白名單'
         db.add_record(plate, None, result, image_path)
         return jsonify({'allowed': False, 'plate': plate})
 
@@ -729,11 +893,38 @@ def dashboard():
 def settings():
     if 'user_id' not in session:
         return redirect(url_for('login'))
+    
+    # 檢查是否需要工程商密碼
+    engineer_hash = db.get_setting('engineer_password_hash', '')
+    if engineer_hash and not session.get('engineer_mode'):
+        return render_template('engineer_verify.html', next='settings')
+    
+    import json
+    # 解析 ROI 設定
+    def parse_roi(key):
+        val = db.get_setting(key, '')
+        if val:
+            try:
+                return json.loads(val)
+            except:
+                pass
+        return {'x': 0, 'y': 0, 'w': 100, 'h': 100}
+
     return render_template('settings.html',
         camera_in_url=db.get_setting('camera_in_url', ''),
         camera_out_url=db.get_setting('camera_out_url', ''),
+        camera_in_roi=parse_roi('camera_in_roi'),
+        camera_out_roi=parse_roi('camera_out_roi'),
+        relay_type=db.get_setting('relay_type', 'usb'),
         relay_port=db.get_setting('relay_port', ''),
         open_duration=float(db.get_setting('open_duration', '1.5')),
+        relay_modbus_ip=db.get_setting('relay_modbus_ip', ''),
+        relay_modbus_port=int(db.get_setting('relay_modbus_port', '502')),
+        relay_modbus_coil=int(db.get_setting('relay_modbus_coil', '0')),
+        ar725e_ip=db.get_setting('ar725e_ip', ''),
+        ar725e_port=int(db.get_setting('ar725e_port', '502')),
+        ar725e_coil=int(db.get_setting('ar725e_coil', '0')),
+        ar725e_mode=db.get_setting('ar725e_mode', 'modbus_tcp'),
         owners_count=len(db.get_owners()),
         today_count=db.get_record_count(date_filter=datetime.now().strftime('%Y-%m-%d')),
         yolo_conf=float(db.get_setting('yolo_conf', '0.5')),
@@ -741,12 +932,15 @@ def settings():
         image_zoom=float(db.get_setting('image_zoom', '2')),
         cooldown=int(db.get_setting('cooldown', '5')),
         ocr_engine=db.get_setting('ocr_engine', 'easyocr'),
+        ollama_url=db.get_setting('ollama_url', 'http://localhost:11434'),
+        ollama_model=db.get_setting('ollama_model', 'llava'),
         project_name=db.get_setting('project_name', '車牌辨識開門系統')
     )
 
 # ============ 資料庫備份 ============
 
 @app.route('/api/backup')
+@engineer_required
 def api_backup():
     """手動備份資料庫"""
     if 'user_id' not in session:
@@ -779,6 +973,7 @@ def api_backup_list():
     return jsonify({'success': True, 'backups': backups})
 
 @app.route('/api/backup/restore/<backup_name>')
+@engineer_required
 def api_backup_restore(backup_name):
     """從備份還原"""
     if 'user_id' not in session:
@@ -808,25 +1003,65 @@ def api_backup_download(backup_name):
 def settings_save():
     if 'user_id' not in session:
         return redirect(url_for('login'))
+    # 工程商密碼保護
+    engineer_hash = db.get_setting('engineer_password_hash', '')
+    if engineer_hash and not session.get('engineer_mode'):
+        return redirect(url_for('login'))
     section = request.form.get('section')
     if section == 'camera':
+        import json
         db.set_setting('camera_in_url', request.form.get('camera_in_url', ''))
         db.set_setting('camera_out_url', request.form.get('camera_out_url', ''))
+        # ROI 設定（存成 JSON）
+        roi_in = {
+            'x': int(request.form.get('roi_in_x', 0)),
+            'y': int(request.form.get('roi_in_y', 0)),
+            'w': int(request.form.get('roi_in_w', 100)),
+            'h': int(request.form.get('roi_in_h', 100))
+        }
+        roi_out = {
+            'x': int(request.form.get('roi_out_x', 0)),
+            'y': int(request.form.get('roi_out_y', 0)),
+            'w': int(request.form.get('roi_out_w', 100)),
+            'h': int(request.form.get('roi_out_h', 100))
+        }
+        db.set_setting('camera_in_roi', json.dumps(roi_in))
+        db.set_setting('camera_out_roi', json.dumps(roi_out))
         flash('攝影機設定已儲存', 'success')
     elif section == 'relay':
+        relay_type = request.form.get('relay_type', 'usb')
+        db.set_setting('relay_type', relay_type)
         db.set_setting('relay_port', request.form.get('relay_port', ''))
         db.set_setting('open_duration', request.form.get('open_duration', '1.5'))
-        # 更新 relay port
+        db.set_setting('relay_modbus_ip', request.form.get('relay_modbus_ip', ''))
+        db.set_setting('relay_modbus_port', request.form.get('relay_modbus_port', '502'))
+        db.set_setting('relay_modbus_coil', request.form.get('relay_modbus_coil', '0'))
+        # 更新 relay
         global relay
         if relay:
             relay.close()
-        port = request.form.get('relay_port', '')
-        if port:
-            from relay import RelayController
-            relay = RelayController(port=port)
-            if relay.connect():
-                logger.info(f'繼電器已更新: {port}')
+        if relay_type == 'modbus_tcp':
+            from relay import ModbusTCPController
+            ip = request.form.get('relay_modbus_ip', '')
+            port = int(request.form.get('relay_modbus_port', 502))
+            coil = int(request.form.get('relay_modbus_coil', 0))
+            if ip:
+                relay = ModbusTCPController(ip=ip, port=port, coil=coil)
+                logger.info(f'Modbus TCP 繼電器已設定: {ip}:{port} coil={coil}')
+        else:
+            port = request.form.get('relay_port', '')
+            if port:
+                from relay import RelayController
+                relay = RelayController(port=port)
+                if relay.connect():
+                    logger.info(f'USB 繼電器已更新: {port}')
         flash('繼電器設定已儲存', 'success')
+    elif section == 'card_reader':
+        db.set_setting('ar725e_ip', request.form.get('ar725e_ip', ''))
+        db.set_setting('ar725e_port', request.form.get('ar725e_port', '502'))
+        db.set_setting('ar725e_coil', request.form.get('ar725e_coil', '0'))
+        db.set_setting('ar725e_mode', request.form.get('ar725e_mode', 'modbus_tcp'))
+        flash('AR-725E 讀卡機設定已儲存', 'success')
     elif section == 'password':
         new_pass = request.form.get('new_password', '')
         confirm = request.form.get('confirm_password', '')
@@ -841,6 +1076,8 @@ def settings_save():
         db.set_setting('image_zoom', request.form.get('image_zoom', '2'))
         db.set_setting('cooldown', request.form.get('cooldown', '5'))
         db.set_setting('ocr_engine', request.form.get('ocr_engine', 'easyocr'))
+        db.set_setting('ollama_url', request.form.get('ollama_url', 'http://localhost:11434'))
+        db.set_setting('ollama_model', request.form.get('ollama_model', 'llava'))
         flash('車牌辨識微調設定已儲存', 'success')
     elif section == 'project':
         db.set_setting('project_name', request.form.get('project_name', '車牌辨識開門系統'))
@@ -850,6 +1087,7 @@ def settings_save():
 # ============ 測試 API ============
 
 @app.route('/api/test_camera')
+@engineer_required
 def test_camera():
     if 'user_id' not in session:
         return jsonify({'success': False, 'message': '未登入'})
@@ -889,6 +1127,7 @@ def test_camera():
     return jsonify({'success': False, 'message': '無法連接任何攝影機，請檢查 URL 設定'})
 
 @app.route('/api/test_relay', methods=['POST'])
+@engineer_required
 def test_relay():
     if 'user_id' not in session:
         return jsonify({'success': False, 'message': '未登入'})
@@ -944,13 +1183,12 @@ def get_yolo_model():
     global _yolo_model
     if _yolo_model is None:
         from ultralytics import YOLO
-        # 使用專門的台灣車牌檢測模型
-        model_path = 'models/license_plate_yolo.pt'
+        # 使用專門的車牌檢測模型（預設用 huggingface 預訓練模型）
+        model_path = 'models/best.pt'
         if os.path.exists(model_path):
             _yolo_model = YOLO(model_path)
-            logger.info('YOLOv8 車牌檢測模型初始化完成')
+            logger.info('YOLOv8 車牌檢測模型初始化完成 (best.pt)')
         else:
-            # 如果沒有專門模型，使用 YOLOv8s
             _yolo_model = YOLO('yolov8s.pt')
             logger.info('YOLOv8s 初始化完成')
     return _yolo_model
@@ -1305,6 +1543,88 @@ def ocr_with_tesseract(image_path):
         logger.error(f'Tesseract OCR failed: {e}')
         return []
 
+def ocr_with_ollama(image_path):
+    """使用 Ollama VLM 辨識車牌"""
+    try:
+        import requests
+        import base64
+        import os
+        
+        ollama_url = db.get_setting('ollama_url', 'http://localhost:11434')
+        ollama_model = db.get_setting('ollama_model', 'llava')
+        
+        # 讀取圖片並轉 base64
+        with open(image_path, 'rb') as f:
+            img_bytes = f.read()
+        img_b64 = base64.b64encode(img_bytes).decode('utf-8')
+        
+        # 呼叫 Ollama
+        payload = {
+            "model": ollama_model,
+            "prompt": "請辨識圖片中的車牌號碼，只回傳車牌號碼，格式如 ABC-1234，不需要其他文字。",
+            "images": [img_b64],
+            "stream": False
+        }
+        
+        resp = requests.post(f'{ollama_url}/api/generate', json=payload, timeout=60)
+        if resp.status_code != 200:
+            logger.error(f'Ollama OCR 失敗: HTTP {resp.status_code}')
+            return []
+        
+        result_text = resp.json().get('response', '').strip()
+        logger.info(f'Ollama OCR 結果: {result_text}')
+        
+        if result_text:
+            return [{'text': result_text, 'confidence': 0.8}]
+        return []
+        
+    except Exception as e:
+        logger.error(f'Ollama OCR 失敗: {e}')
+        return []
+
+def ocr_crop_with_ollama(crop_img):
+    """對裁剪後的車牌區域使用 Ollama VLM 辨識"""
+    try:
+        import requests
+        import base64
+        import cv2
+        import tempfile
+        import os
+        
+        ollama_url = db.get_setting('ollama_url', 'http://localhost:11434')
+        ollama_model = db.get_setting('ollama_model', 'llava')
+        
+        # 儲存裁切圖片
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+            cv2.imwrite(tmp.name, crop_img)
+            with open(tmp.name, 'rb') as f:
+                img_bytes = f.read()
+            img_b64 = base64.b64encode(img_bytes).decode('utf-8')
+            os.unlink(tmp.name)
+        
+        payload = {
+            "model": ollama_model,
+            "prompt": "請辨識圖片中的車牌號碼，只回傳車牌號碼，格式如 ABC-1234，不需要其他文字。",
+            "images": [img_b64],
+            "stream": False
+        }
+        
+        resp = requests.post(f'{ollama_url}/api/generate', json=payload, timeout=60)
+        if resp.status_code != 200:
+            logger.error(f'Ollama crop OCR 失敗: HTTP {resp.status_code}')
+            return []
+        
+        result_text = resp.json().get('response', '').strip()
+        logger.info(f'Ollama crop OCR 結果: {result_text}')
+        
+        if result_text:
+            return [{'text': result_text, 'confidence': 0.85}]
+        return []
+        
+    except Exception as e:
+        logger.error(f'Ollama crop OCR 失敗: {e}')
+        return []
+
 def filter_plate_text(ocr_texts):
     """過濾並格式化車牌文字"""
     import re
@@ -1321,14 +1641,18 @@ def filter_plate_text(ocr_texts):
         r'[A-Z]{2,3}[0-9]{4}',        # ABC1234, AB1234
         r'[0-9][A-Z0-9]{5}',          # 1ABC23, 12ABC3
         r'[0-9]{4}[A-Z]{2,3}',        # 5799KE, 1234AB (4位數2字母，無dash)
-        
+
         # 新式車牌（2012年後）
         r'[A-Z]{2}-[0-9]{4}',         # AB-1234 (新式2碼-4碼)
         r'[A-Z]{3}-[0-9]{3}',         # ABC-123 (新式3碼-3碼)
-        
+
         # 大型車
         r'[0-9]{3}-[A-Z]{3}',         # 123-ABC (大型車)
-        
+
+        # 特殊車牌（含中間點 · 或 .）
+        r'[0-9]{4}[·\.][A-Z]{2,3}',   # 0831·KM, 0831.KM (台灣舊式)
+        r'[0-9]{3}[·\.][A-Z]{3}',     # 123·ABC (大型車·格式)
+
         # 特殊車牌
         r'[0-9]{3}[A-Z]{3}',         # 123ABC (無dash大型車)
         r'[A-Z][0-9]{4}[A-Z]',       # A1234B (混合)
@@ -1355,7 +1679,7 @@ def filter_plate_text(ocr_texts):
         if conf < ocr_conf_threshold:
             continue
         
-        text_upper = text.upper()
+        text_upper = text.upper().replace('·', '-').replace('.', '-')
         for pattern in plate_patterns:
             matches = re.findall(pattern, text_upper)
             for match in matches:
@@ -1396,15 +1720,29 @@ def api_detect_plate():
     plate_crops = detect_plate_with_yolo(filepath)
     logger.info(f'YOLOv8 偵測到 {len(plate_crops)} 個車牌區域')
     
-    # Step 2: 對每個車牌區域進行透視變換 + EasyOCR 辨識
+    # Step 2: 對每個車牌區域進行 OCR 辨識（根據設定選擇引擎）
     all_ocr_texts = []
     plate_results = []
+    ocr_engine = db.get_setting('ocr_engine', 'easyocr')
     
     for pc in plate_crops:
         # 應用透視變換
         transformed = apply_perspective_transform(pc['crop'])
-        # EasyOCR 辨識
-        ocr_texts = ocr_crop_with_easyocr(transformed)
+        
+        # 根據設定選擇 OCR 引擎
+        if ocr_engine == 'ollama':
+            ocr_texts = ocr_crop_with_ollama(transformed)
+        elif ocr_engine == 'easyocr':
+            ocr_texts = ocr_crop_with_easyocr(transformed)
+        elif ocr_engine == 'tesseract':
+            # 假設 ocr_crop_with_easyocr 包含 tesseract
+            ocr_texts = ocr_crop_with_easyocr(transformed)
+        else:  # 'both' or 'hybrid'
+            # hybrid = EasyOCR 為主，Ollama 為輔
+            ocr_texts = ocr_crop_with_easyocr(transformed)
+            if not ocr_texts:
+                ollama_texts = ocr_crop_with_ollama(transformed)
+                ocr_texts.extend(ollama_texts)
         plates = filter_plate_text(ocr_texts)
         plate_results.append({
             'vehicle_type': pc['vehicle_type'],
@@ -1416,8 +1754,17 @@ def api_detect_plate():
         all_ocr_texts.extend(ocr_texts)
         logger.info(f'  {pc["vehicle_type"]} 區域 EasyOCR: {plates}')
     
-    # Step 3: 對全圖也做一次 EasyOCR（作為備援）
-    full_ocr_texts = ocr_with_easyocr(filepath)
+    # Step 3: 對全圖做 OCR（根據設定選擇引擎）
+    if ocr_engine == 'ollama':
+        full_ocr_texts = ocr_with_ollama(filepath)
+    elif ocr_engine == 'easyocr' or ocr_engine == 'tesseract':
+        full_ocr_texts = ocr_with_easyocr(filepath)
+    else:  # 'both' or 'hybrid'
+        # hybrid: 先用 EasyOCR，再用 Ollama 備援
+        full_ocr_texts = ocr_with_easyocr(filepath)
+        if not full_ocr_texts:
+            ollama_full = ocr_with_ollama(filepath)
+            full_ocr_texts.extend(ollama_full)
     all_ocr_texts.extend(full_ocr_texts)
     full_plates = filter_plate_text(full_ocr_texts)
     
@@ -1451,8 +1798,8 @@ def api_detect_plate():
         annotated_path = filepath.replace('.jpg', '_annotated.jpg').replace('.png', '_annotated.png')
         cv2.imwrite(annotated_path, img)
         logger.info(f'已繪製 YOLOv8 偵測框: {annotated_path}')
-        # 回傳相對路徑，讓前端可以存取
-        annotated_path = os.path.basename(annotated_path)
+        # 回傳相對路徑，讓前端可以存取（需保留 captures/ 前綴）
+        annotated_path = 'captures/' + os.path.basename(annotated_path)
     else:
         annotated_path = None
     
@@ -1479,7 +1826,7 @@ def api_detect_plate():
             # 找到匹配的車牌，開門
             if relay:
                 relay.open_gate()
-            db.add_record(plate, owner['name'], 'YOLOv8 自動辨識開門', filepath)
+            db.add_record(plate, owner['name'], '✅ 允許進場', filepath)
             logger.info(f'車牌 {plate} 比對成功，{owner["name"]} 已開門')
             break
     
@@ -1491,11 +1838,16 @@ def api_detect_plate():
                 matched_plate = plate
                 if relay:
                     relay.open_gate()
-                db.add_record(plate, visitor_pass.get('visitor_name', '訪客'), '訪客通行證開門', filepath)
+                db.add_record(plate, visitor_pass.get('visitor_name', '訪客'), '✅ 訪客通行', filepath)
                 db.use_visitor_pass(visitor_pass['id'])  # 標記為已使用
                 logger.info(f'車牌 {plate} 持有有效訪客通行證，已開門')
                 add_alert('info', f'👋 訪客通行：{plate}（{visitor_pass.get("visitor_name", "未知")}）')
                 break
+    
+    # 如果都沒有匹配，記錄為不在白名單
+    if not matched_plate and combined_plates:
+        best_plate = combined_plates[0]
+        db.add_record(best_plate, None, f'❌ {best_plate} 不在白名單', filepath)
     
     # 計算平均 OCR 信心度
     avg_conf = 0
@@ -1531,7 +1883,7 @@ def api_detect_plate():
         'matched_owner': matched_owner['name'] if matched_owner else None,
         'allowed': matched_owner is not None,
         'message': (f'✅ {matched_owner["name"]} 驗證成功，已開門！' if matched_owner 
-                    else f'YOLOv8 偵測到 {len(plate_crops)} 個車牌區域，PaddleOCR 找到 {len(combined_plates)} 個可能車牌，無匹配白名單')
+                    else f'YOLOv8 偵測到 {len(plate_crops)} 個車牌區域，{ocr_engine} 找到 {len(combined_plates)} 個可能車牌，無匹配白名單')
     }
     
     return jsonify(result)
@@ -1855,6 +2207,27 @@ def api_engineer_verify():
     
     return jsonify({'success': False, 'error': '密碼錯誤'})
 
+@app.route('/api/ollama/models')
+def api_ollama_models():
+    """取得 Ollama 可用的模型列表"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    import requests
+    url = request.args.get('url', 'http://localhost:11434')
+    
+    try:
+        response = requests.get(f'{url}/api/tags', timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            models = data.get('models', [])
+            return jsonify({'models': models})
+        else:
+            return jsonify({'error': f'HTTP {response.status_code}'}), 400
+    except requests.exceptions.ConnectionError:
+        return jsonify({'error': '無法連線到 Ollama，請確認 Ollama 已啟動'}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
 @app.route('/api/settings/set-engineer-password', methods=['POST'])
 def api_set_engineer_password():
     """設定工程商密碼"""
@@ -1933,7 +2306,8 @@ def api_parking_sessions_active():
     for s in sessions:
         entry = s['entry_time']
         if isinstance(entry, str):
-            entry = datetime.strptime(entry, '%Y-%m-%d %H:%M:%S')
+            entry_str = entry.split('.')[0]
+            entry = datetime.strptime(entry_str, '%Y-%m-%d %H:%M:%S')
         duration = int((now - entry).total_seconds() / 60)
         fee = db.calculate_fee(duration)
         result.append({
@@ -1990,8 +2364,13 @@ def api_parking_exit():
     
     session_id, result = db.end_parking_session(plate)
     
+    # 釋放車位
+    if slot_number:
+        db.free_slot(slot_number)
+    
     if session_id is None:
-        return jsonify({'error': result})
+        # 車位已釋放，但沒有實際的停車記錄（可能手動標記占用的）
+        return jsonify({'success': True, 'fee': 0, 'duration': 0, 'message': f'車位已釋放（{plate}）'})
     
     # 計算費用
     fee = result
@@ -1999,10 +2378,6 @@ def api_parking_exit():
         fee = override_fee
     elif reason in ('free', 'error'):
         fee = 0
-    
-    # 釋放車位
-    if slot_number:
-        db.free_slot(slot_number)
     else:
         # 嘗試自動釋放
         active = db.get_parking_session_by_plate(plate)
@@ -2031,7 +2406,8 @@ def api_parking_exit():
         entry = session_data['entry_time']
         exit_t = datetime.now()
         if isinstance(entry, str):
-            entry = datetime.strptime(entry, '%Y-%m-%d %H:%M:%S')
+            entry_str = entry.split('.')[0]
+            entry = datetime.strptime(entry_str, '%Y-%m-%d %H:%M:%S')
         duration = int((exit_t - entry).total_seconds() / 60)
         db.create_billing(
             session_id=session_id,

@@ -549,7 +549,7 @@ async function markPaid(billingId) {
     if (!confirm('確認已收到此帳單款項？')) return;
     
     try {
-        const res = await fetch(`/api/billing/${billingId}/mark-paid`, { method: 'POST' });
+        const res = await fetch(`/api/billing/${billingId}/paid`, { method: 'POST' });
         const data = await res.json();
         
         if (data.success) {

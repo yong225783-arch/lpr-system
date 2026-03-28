@@ -56,6 +56,17 @@ body {
     font-size: 1.5rem;
 }
 
+.nav-brand .logo-img {
+    height: 32px;
+    width: auto;
+}
+
+.login-logo {
+    height: 60px;
+    width: auto;
+    margin-bottom: 0.5rem;
+}
+
 .nav-links {
     display: flex;
     align-items: center;
@@ -341,6 +352,13 @@ body {
     margin-bottom: 0.5rem;
 }
 
+.login-logo {
+    height: 64px;
+    width: auto;
+    margin-bottom: 0.75rem;
+    border-radius: 8px;
+}
+
 .login-header h1 {
     font-size: 1.3rem;
     margin-bottom: 0.5rem;
@@ -450,7 +468,7 @@ body {
     top: 0; left: 0;
     width: 100%; height: 100%;
     background: rgba(0,0,0,0.5);
-    display: flex;
+    display: none;
     align-items: center;
     justify-content: center;
     z-index: 1000;
@@ -551,3 +569,129 @@ body {
 .info-value {
     font-weight: 600;
 }
+
+/* ===== 導航列 LOGO ===== */
+.nav-logo {
+    height: 28px;
+    width: auto;
+    border-radius: 4px;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+/* ===== 頁腳 ===== */
+.site-footer {
+    background: #1e293b;
+    color: #94a3b8;
+    padding: 1.5rem 2rem;
+    margin-top: 3rem;
+    border-top: 1px solid #334155;
+}
+
+.footer-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.footer-logo {
+    height: 36px;
+    width: auto;
+    border-radius: 6px;
+}
+
+.footer-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 0.85rem;
+    text-align: left;
+}
+
+/* ===== 首頁品牌橫幅 ===== */
+.brand-banner {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    background: linear-gradient(135deg, #1e3a5f 0%, #0f2744 100%);
+    border-radius: 12px;
+    padding: 1.5rem 2rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+}
+
+.banner-logo {
+    height: 64px;
+    width: auto;
+    border-radius: 8px;
+    background: white;
+    padding: 4px;
+}
+
+.banner-text h1 {
+    color: white;
+    font-size: 1.5rem;
+    margin: 0 0 4px 0;
+    font-weight: 700;
+}
+
+.banner-text p {
+    color: #93c5fd;
+    font-size: 0.85rem;
+    margin: 0;
+}
+
+/* 車位卡片 */
+.slots-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.slot-card {
+    aspect-ratio: 1;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    font-weight: bold;
+}
+
+.slot-card:hover {
+    transform: scale(1.05);
+    box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+}
+
+.slot-card.available {
+    background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+    color: #155724;
+    border: 3px solid #28a745;
+}
+
+.slot-card.occupied {
+    background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+    color: #721c24;
+    border: 3px solid #dc3545;
+}
+
+.slot-card.reserved {
+    background: linear-gradient(135deg, #fff3cd 0%, #ffeeba 100%);
+    color: #856404;
+    border: 3px solid #ffc107;
+}
+
+.slot-card.disabled {
+    background: #e9ecef;
+    color: #6c757d;
+    border: 3px solid #adb5bd;
+}
+
+.slot-number { font-size: 24px; margin-bottom: 5px; }
+.slot-plate { font-size: 11px; opacity: 0.8; }

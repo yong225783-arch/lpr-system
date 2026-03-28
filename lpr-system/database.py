@@ -22,6 +22,7 @@ def init_db():
             name TEXT NOT NULL,
             phone TEXT,
             plate TEXT UNIQUE NOT NULL,
+            card_id TEXT,
             car_type TEXT DEFAULT '轎車',
             owner_type TEXT DEFAULT 'resident',  -- resident (月租戶) or visitor (臨停)
             slot_number TEXT,
@@ -30,6 +31,13 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # 如果 card_id 欄位不存在，就新增
+    try:
+        c.execute('ALTER TABLE owners ADD COLUMN card_id TEXT')
+        conn.commit()
+    except:
+        pass
 
     # 訪客通行證表（臨時通行）
     c.execute('''
@@ -221,25 +229,37 @@ def get_owner_by_plate(plate):
     conn.close()
     return dict(row) if row else None
 
+def get_owner_by_card(card_id):
+    """用卡號查詢車主"""
+    if not card_id:
+        return None
+    conn = get_db()
+    row = conn.execute(
+        'SELECT * FROM owners WHERE card_id = ? AND is_blacklist = 0',
+        (card_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
 def get_owner_by_id(owner_id):
     conn = get_db()
     row = conn.execute('SELECT * FROM owners WHERE id = ?', (owner_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
 
-def add_owner(name, phone, plate, car_type='轎車', slot_number=None, note='', owner_id=None, member_id=None, owner_type='resident'):
+def add_owner(name, phone, plate, car_type='轎車', slot_number=None, note='', owner_id=None, member_id=None, owner_type='resident', card_id=None):
     conn = get_db()
     try:
         if owner_id:
             # 手動指定 ID
             conn.execute(
-                'INSERT INTO owners (id, member_id, name, phone, plate, car_type, owner_type, slot_number, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (owner_id, member_id, name, phone, plate, car_type, owner_type, slot_number if slot_number else None, note)
+                'INSERT INTO owners (id, member_id, name, phone, plate, card_id, car_type, owner_type, slot_number, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (owner_id, member_id, name, phone, plate, card_id, car_type, owner_type, slot_number if slot_number else None, note)
             )
         else:
             conn.execute(
-                'INSERT INTO owners (member_id, name, phone, plate, car_type, owner_type, slot_number, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                (member_id, name, phone, plate, car_type, owner_type, slot_number if slot_number else None, note)
+                'INSERT INTO owners (member_id, name, phone, plate, card_id, car_type, owner_type, slot_number, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (member_id, name, phone, plate, card_id, car_type, owner_type, slot_number if slot_number else None, note)
             )
         conn.commit()
         conn.close()
@@ -250,12 +270,12 @@ def add_owner(name, phone, plate, car_type='轎車', slot_number=None, note='', 
             return False, 'ID 已經存在'
         return False, '車牌已存在'
 
-def update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist, member_id=None, owner_type='resident'):
+def update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist, member_id=None, owner_type='resident', card_id=None):
     conn = get_db()
     try:
         conn.execute(
-            '''UPDATE owners SET member_id=?, name=?, phone=?, plate=?, car_type=?, owner_type=?, slot_number=?, note=?, is_blacklist=? WHERE id=?''',
-            (member_id, name, phone, plate, car_type, owner_type, slot_number, note, is_blacklist, owner_id)
+            '''UPDATE owners SET member_id=?, name=?, phone=?, plate=?, card_id=?, car_type=?, owner_type=?, slot_number=?, note=?, is_blacklist=? WHERE id=?''',
+            (member_id, name, phone, plate, card_id, car_type, owner_type, slot_number, note, is_blacklist, owner_id)
         )
         conn.commit()
         conn.close()
@@ -386,6 +406,12 @@ def get_slot_by_number(slot_number):
     conn.close()
     return dict(row) if row else None
 
+def get_slot_by_owner_id(owner_id):
+    conn = get_db()
+    row = conn.execute('SELECT * FROM parking_slots WHERE owner_id = ?', (owner_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
 def add_parking_slot(slot_number, status='available'):
     conn = get_db()
     try:
@@ -483,7 +509,13 @@ def end_parking_session(plate, note=''):
         return None, '找不到進行中的停車記錄'
     
     exit_time = datetime.now()
-    entry_time = datetime.strptime(session['entry_time'], '%Y-%m-%d %H:%M:%S') if isinstance(session['entry_time'], str) else session['entry_time']
+    entry_time_str = session['entry_time']
+    if isinstance(entry_time_str, str):
+        # 移除微秒部分（如果有）
+        entry_time_str = entry_time_str.split('.')[0]
+        entry_time = datetime.strptime(entry_time_str, '%Y-%m-%d %H:%M:%S')
+    else:
+        entry_time = entry_time_str
     duration_minutes = int((exit_time - entry_time).total_seconds() / 60)
     
     # 計算費用
@@ -515,7 +547,8 @@ def get_active_sessions():
         row = dict(row)
         # 計算停車時長
         if isinstance(row['entry_time'], str):
-            entry = datetime.strptime(row['entry_time'], '%Y-%m-%d %H:%M:%S')
+            entry_str = row['entry_time'].split('.')[0]
+            entry = datetime.strptime(entry_str, '%Y-%m-%d %H:%M:%S')
         else:
             entry = row['entry_time']
         duration = int((now - entry).total_seconds() / 60)

@@ -19,6 +19,7 @@
                 <th>姓名</th>
                 <th>電話</th>
                 <th>車牌</th>
+                <th>卡號</th>
                 <th>類型</th>
                 <th>狀態</th>
                 <th>操作</th>
@@ -31,11 +32,20 @@
                 <td>{{ o.name }}</td>
                 <td>{{ o.phone or '-' }}</td>
                 <td><strong>{{ o.plate }}</strong></td>
+                <td>{{ o.card_id or '-' }}</td>
                 <td>
                     {% if o.owner_type == 'resident' %}
-                    <span style="background:#007bff; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">月租戶</span>
+                    <span style="background:#007bff; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">👤 月租戶</span>
+                    {% elif o.owner_type == 'owner' %}
+                    <span style="background:#28a745; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">🏠 住戶</span>
+                    {% elif o.owner_type == 'tenant' %}
+                    <span style="background:#17a2b8; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">🔑 承租戶</span>
                     {% elif o.owner_type == 'visitor' %}
-                    <span style="background:#6c757d; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">臨停戶</span>
+                    <span style="background:#6c757d; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">🚗 臨停戶</span>
+                    {% elif o.owner_type == 'service' %}
+                    <span style="background:#fd7e14; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">🔧 服務人員</span>
+                    {% elif o.owner_type == 'delivery' %}
+                    <span style="background:#e83e8c; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">📦 快遞/送貨</span>
                     {% else %}
                     {{ o.owner_type }}
                     {% endif %}
@@ -85,6 +95,10 @@
                 <input type="text" name="plate" id="ownerPlate" required style="text-transform:uppercase">
             </div>
             <div class="form-group">
+                <label>卡號（eTag/RFID）</label>
+                <input type="text" name="card_id" id="ownerCardId" placeholder="感應卡號">
+            </div>
+            <div class="form-group">
                 <label>車型</label>
                 <select name="car_type" id="ownerCarType">
                     <option value="轎車">轎車</option>
@@ -95,8 +109,12 @@
             <div class="form-group">
                 <label>住戶類型</label>
                 <select name="owner_type" id="ownerType">
-                    <option value="resident">月租戶</option>
-                    <option value="visitor">臨停戶</option>
+                    <option value="resident">👤 月租戶</option>
+                    <option value="owner">🏠 住戶</option>
+                    <option value="tenant">🔑 承租戶</option>
+                    <option value="visitor">🚗 臨停戶</option>
+                    <option value="service">🔧 服務人員</option>
+                    <option value="delivery">📦 快遞/送貨</option>
                 </select>
             </div>
             <div class="form-group">
@@ -130,6 +148,7 @@ function showAddModal() {
     document.getElementById('ownerName').value = '';
     document.getElementById('ownerPhone').value = '';
     document.getElementById('ownerPlate').value = '';
+    document.getElementById('ownerCardId').value = '';
     document.getElementById('ownerCarType').value = '轎車';
     document.getElementById('ownerType').value = 'resident';
     document.getElementById('ownerSlotNumber').value = '';
@@ -145,6 +164,7 @@ function editOwner(o) {
     document.getElementById('ownerName').value = o.name;
     document.getElementById('ownerPhone').value = o.phone || '';
     document.getElementById('ownerPlate').value = o.plate;
+    document.getElementById('ownerCardId').value = o.card_id || '';
     document.getElementById('ownerCarType').value = o.car_type || '轎車';
     document.getElementById('ownerType').value = o.owner_type || 'resident';
     document.getElementById('ownerSlotNumber').value = o.slot_number || '';

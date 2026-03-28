@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.egg-info/
+dist/
+build/
+
+# Models
+models/*.pt
+!models/best.pt
+models/*.onnx
+
+# Database
+*.db
+lpr.db
+
+# Captures
+captures/
+
+# Logs
+*.log
+app.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/

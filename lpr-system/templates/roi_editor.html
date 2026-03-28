@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ROI 區域設定 - 車牌辨識系統</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Noto Sans TC', sans-serif; background: #0a0f14; color: #e0e0e0; min-height: 100vh; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 16px; }
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .page-header h1 { font-size: 1.3rem; color: #fff; }
+        .back-btn { background: #1a2535; color: #aaa; padding: 7px 14px; border-radius: 6px; text-decoration: none; font-size: 0.85rem; border: 1px solid #2a3a4d; }
+        .back-btn:hover { background: #2a3a4d; color: #fff; }
+        .mode-tabs { display: flex; gap: 10px; margin-bottom: 16px; }
+        .mode-tab { padding: 9px 22px; border-radius: 8px; cursor: pointer; font-weight: 500; border: 2px solid transparent; transition: all 0.2s; font-size: 0.9rem; }
+        .mode-tab.in { background: #0d2318; color: #4caf50; border-color: #4caf50; }
+        .mode-tab.out { background: #231a0d; color: #ff9800; border-color: #ff9800; }
+        .mode-tab:hover { opacity: 0.85; }
+        .top-bar { display: flex; gap: 10px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
+        .top-bar .info-pill { background: #1a2535; border: 1px solid #2a3a4d; padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; color: #888; }
+        .top-bar .info-pill b { color: #4caf50; }
+        .toggle-btn { background: #1a2535; border: 1px solid #2a3a4d; color: #aaa; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; }
+        .toggle-btn:hover { background: #2a3a4d; color: #fff; }
+        .toggle-btn.active { background: #1e3a2e; color: #4caf50; border-color: #4caf50; }
+        .editor-wrap { position: relative; background: #111; border-radius: 10px; overflow: hidden; border: 1px solid #2a3a4d; }
+        .canvas-container { position: relative; width: 100%; }
+        .canvas-container img { width: 100%; display: block; }
+        #roiCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; cursor: crosshair; }
+        .no-camera { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 380px; background: #0d1520; }
+        .no-camera-icon { font-size: 4rem; margin-bottom: 1rem; filter: grayscale(1); opacity: 0.4; }
+        .no-camera h3 { color: #666; margin-bottom: 0.5rem; }
+        .no-camera p { font-size: 0.85rem; color: #444; }
+        .bottom-info { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: #0d1520; border-top: 1px solid #1a2535; font-size: 0.8rem; color: #555; flex-wrap: wrap; gap: 8px; }
+        .bottom-info .stat { display: flex; gap: 16px; }
+        .bottom-info .stat span { color: #888; }
+        .bottom-info .stat b { color: #4caf50; }
+        .bottom-info .plate-warn { color: #ff6b6b; }
+        .bottom-info .plate-ok { color: #4caf50; }
+        .controls { display: flex; gap: 8px; margin-top: 12px; justify-content: center; flex-wrap: wrap; }
+        .btn { padding: 9px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500; transition: opacity 0.2s; }
+        .btn:hover { opacity: 0.85; }
+        .btn-reset { background: #2a2a2a; color: #aaa; border: 1px solid #3a3a3a; }
+        .btn-save { background: linear-gradient(135deg, #2e7d32, #1b5e20); color: #fff; }
+        .btn-clear { background: #7b1c1c; color: #fff; border: 1px solid #9b2c2c; }
+        .btn-fullscreen { background: #1a2535; color: #aaa; border: 1px solid #2a3a4d; }
+        .preset-row { display: flex; gap: 8px; margin-top: 10px; justify-content: center; flex-wrap: wrap; }
+        .preset-btn { background: #1a2535; color: #777; border: 1px solid #2a3a4d; padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 0.78rem; }
+        .preset-btn:hover { background: #2a3a4d; color: #fff; }
+        .hint { text-align: center; margin-top: 8px; font-size: 0.78rem; color: #3a4a5a; }
+        .status { text-align: center; margin-top: 6px; font-size: 0.82rem; min-height: 18px; }
+        .status.ok { color: #4caf50; }
+        .status.err { color: #ff6b6b; }
+        .roi-count { background: #1a3a2a; color: #4caf50; padding: 3px 10px; border-radius: 10px; font-size: 0.75rem; margin-left: 8px; }
+        .zones-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; justify-content: center; }
+        .zone-chip { background: #1a2535; border: 1px solid #2a3a4d; color: #888; padding: 4px 12px; border-radius: 4px; font-size: 0.75rem; cursor: pointer; }
+        .zone-chip:hover, .zone-chip.active { background: #1e3a2e; color: #4caf50; border-color: #4caf50; }
+        .zone-chip.del { background: #3a1a1a; color: #ff6b6b; border-color: #9b2c2c; }
+        .fullscreen-btn { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.6); border: 1px solid #3a4a5d; color: #aaa; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; z-index: 10; }
+        .fullscreen-btn:hover { background: rgba(0,0,0,0.8); color: #fff; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="page-header">
+        <h1>📐 ROI 偵測區域設定</h1>
+        <div style="display:flex;gap:8px;">
+            <a href="/settings" class="back-btn">← 設定</a>
+        </div>
+    </div>
+
+    <div class="mode-tabs">
+        <div class="mode-tab in {% if mode == 'in' %}active{% endif %}" onclick="switchMode('in')">🚗 入口</div>
+        <div class="mode-tab out {% if mode == 'out' %}active{% endif %}" onclick="switchMode('out')">🚪 出口</div>
+    </div>
+
+    <div class="top-bar">
+        <div class="info-pill">模式：<b id="modeLabel">{% if mode == 'in' %}入口{% else %}出口{% endif %}</b></div>
+        <div class="info-pill">車牌寬度：<b id="plateWidth">--</b></div>
+        <div class="info-pill">區域數：<b id="zoneCount">0</b> / 最多 3</div>
+        <button class="toggle-btn active" id="gridBtn" onclick="toggleGrid()">📏 格線</button>
+        <button class="toggle-btn" id="fullscreenBtn" onclick="toggleFullscreen()">⛶ 全螢幕</button>
+    </div>
+
+    <div class="editor-wrap" id="editorWrap">
+        {% if snapshot_url or has_stream %}
+        <div class="canvas-container" id="canvasContainer">
+            <img src="{{ snapshot_url if snapshot_url else '/video_feed.jpg/' + mode + '?t=' + timestamp }}" id="cameraImg" crossorigin="anonymous">
+            <canvas id="roiCanvas"></canvas>
+            <button class="fullscreen-btn" onclick="toggleFullscreen()">⛶</button>
+        </div>
+        {% else %}
+        <div class="no-camera">
+            <div class="no-camera-icon">📷</div>
+            <h3>尚無影像</h3>
+            <p>請先在設定頁面填寫 RTSP URL</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="bottom-info">
+        <div class="stat">
+            <span>座標：<b id="coordDisplay">未繪製</b></span>
+            <span id="sizeInfo"></span>
+        </div>
+        <div style="color:#3a4a5a;font-size:0.75rem;">💡 建議車牌至少 130px 寬，否則辨識率下降</div>
+    </div>
+
+    <div class="zones-list" id="zonesList"></div>
+
+    <div class="controls">
+        <button class="btn btn-clear" onclick="deleteCurrentZone()">🗑 刪除區域</button>
+        <button class="btn btn-reset" onclick="clearAll()">🔄 清除全部</button>
+        <button class="btn btn-save" onclick="saveROI()">💾 儲存</button>
+    </div>
+
+    <div class="preset-row">
+        <button class="preset-btn" onclick="setPreset(0,40,100,60)">下半部</button>
+        <button class="preset-btn" onclick="setPreset(0,30,100,70)">下七成</button>
+        <button class="preset-btn" onclick="setPreset(0,20,100,80)">下八成</button>
+        <button class="preset-btn" onclick="setPreset(10,30,60,60)">偏中</button>
+        <button class="preset-btn" onclick="setPreset(30,40,40,50)">右下</button>
+        <button class="preset-btn" onclick="setPreset(0,0,100,100)">全畫面</button>
+    </div>
+    <div class="hint">在畫面上拖曳滑鼠繪製偵測區域（最多 3 區）｜支援多點觸控</div>
+    <div class="status" id="statusMsg"></div>
+</div>
+
+<script>
+const mode = '{{ mode }}';
+let zones = [];
+let currentZoneIdx = -1;
+let drawing = false;
+let dragIdx = -1;
+let startX, startY;
+let imgW = 0, imgH = 0;
+let showGrid = true;
+let imgLive = false;
+let lastImgSrc = '';
+
+const canvas = document.getElementById('roiCanvas');
+const ctx = canvas ? canvas.getContext('2d') : null;
+const img = document.getElementById('cameraImg');
+
+function switchMode(m) {
+    window.location.href = '/roi-editor/' + m;
+}
+
+// 嘗試自動更新影像
+{% if has_stream %}
+let imgEl = document.getElementById('cameraImg');
+setInterval(() => {
+    imgEl.src = '/video_feed.jpg/' + mode + '?t=' + Date.now();
+}, 500);
+imgLive = true;
+{% endif %}
+
+function resizeCanvas() {
+    if (!img || !canvas) return;
+    const rect = img.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+    imgW = img.naturalWidth || 1920;
+    imgH = img.naturalHeight || 1080;
+    redraw();
+}
+
+img && (img.onload = resizeCanvas);
+window.addEventListener('resize', resizeCanvas);
+
+function pxToPct(pxX, pxY, rect) {
+    return {
+        x: Math.round((pxX / rect.width) * 1000) / 10,
+        y: Math.round((pxY / rect.height) * 1000) / 10,
+        w: Math.round(pxX / rect.width * 1000) / 10,
+        h: Math.round(pxY / rect.height * 1000) / 10
+    };
+}
+
+function pctToPx(roi, rect) {
+    return {
+        x: rect.width * roi.x / 100,
+        y: rect.height * roi.y / 100,
+        w: rect.width * roi.w / 100,
+        h: rect.height * roi.h / 100
+    };
+}
+
+function drawGrid() {
+    if (!ctx || !showGrid) return;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    const w = canvas.width, h = canvas.height;
+    // 三分法格線
+    for (let i = 1; i < 3; i++) {
+        ctx.beginPath();
+        ctx.moveTo(w * i / 3, 0); ctx.lineTo(w * i / 3, h);
+        ctx.moveTo(0, h * i / 3); ctx.lineTo(w, h * i / 3);
+        ctx.stroke();
+    }
+    // 中心十字
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.beginPath();
+    ctx.moveTo(w/2, 0); ctx.lineTo(w/2, h);
+    ctx.moveTo(0, h/2); ctx.lineTo(w, h/2);
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawZones() {
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawGrid();
+
+    const rect = canvas.getBoundingClientRect();
+    zones.forEach((z, i) => {
+        const px = pctToPx(z, rect);
+        const isActive = i === currentZoneIdx;
+        // 半透明遮罩
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // 扣除區域
+        ctx.clearRect(px.x, px.y, px.w, px.h);
+        // 框
+        ctx.strokeStyle = isActive ? '#4caf50' : 'rgba(76,175,80,0.6)';
+        ctx.lineWidth = isActive ? 2.5 : 1.5;
+        ctx.setLineDash(isActive ? [] : [6, 4]);
+        ctx.strokeRect(px.x, px.y, px.w, px.h);
+        ctx.setLineDash([]);
+        // 填充（半透明綠）
+        ctx.fillStyle = isActive ? 'rgba(76,175,80,0.15)' : 'rgba(76,175,80,0.07)';
+        ctx.fillRect(px.x, px.y, px.w, px.h);
+        // 標籤
+        ctx.fillStyle = isActive ? '#4caf50' : 'rgba(76,175,80,0.8)';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.fillText('R' + (i+1), px.x + 5, px.y + 16);
+    });
+
+    // 繪製中的框
+    if (drawing && dragIdx >= 0) {
+        const r = canvas.getBoundingClientRect();
+        const curX = currentX - r.left, curY = currentY - r.top;
+        const x = Math.min(startX, curX), y = Math.min(startY, curY);
+        const w = Math.abs(curX - startX), h = Math.abs(curY - startY);
+        ctx.strokeStyle = '#4caf50'; ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+    }
+}
+
+function redraw() { drawZones(); }
+
+// 估算車牌寬度（假設車牌佔 ROI 寬度的 15-25%）
+function estimatePlateWidth() {
+    if (zones.length === 0 || !imgW) return null;
+    const rect = canvas.getBoundingClientRect();
+    // 取第一個 zone 估算
+    const z = zones[0];
+    const px = pctToPx(z, rect);
+    // 假設車牌約為 ROI 寬的 20%
+    const platePx = px.w * 0.2;
+    return Math.round(platePx);
+}
+
+function updatePlateWidth() {
+    const el = document.getElementById('plateWidth');
+    const w = estimatePlateWidth();
+    if (w === null) { el.textContent = '--'; return; }
+    const ok = w >= 100;
+    el.innerHTML = ok
+        ? `<span class="plate-ok">${w}px ✅</span>`
+        : `<span class="plate-warn">${w}px ⚠️ 太小</span>`;
+}
+
+let currentX = 0, currentY = 0;
+
+canvas && canvas.addEventListener('mousemove', e => {
+    currentX = e.clientX; currentY = e.clientY;
+    if (drawing) { redraw(); return; }
+    if (dragIdx >= 0) {
+        redraw();
+    }
+});
+
+canvas && canvas.addEventListener('mousedown', e => {
+    const r = canvas.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    // 檢查是否點到現有 zone
+    dragIdx = -1;
+    zones.forEach((z, i) => {
+        const px = pctToPx(z, r);
+        if (mx >= px.x && mx <= px.x + px.w && my >= px.y && my <= px.y + px.h) {
+            dragIdx = i;
+            currentZoneIdx = i;
+        }
+    });
+
+    if (dragIdx >= 0) {
+        // 選取該區域
+        startX = mx; startY = my;
+        redraw();
+        updateZoneInfo();
+    } else {
+        // 新增區域
+        if (zones.length >= 3) {
+            showStatus('最多 3 個區域', 'err'); return;
+        }
+        drawing = true;
+        startX = mx; startY = my;
+        currentZoneIdx = zones.length;
+    }
+});
+
+canvas && canvas.addEventListener('mousemove', e => {
+    if (!drawing && dragIdx < 0) return;
+    currentX = e.clientX; currentY = e.clientY;
+    redraw();
+});
+
+canvas && canvas.addEventListener('mouseup', e => {
+    if (drawing) {
+        const r = canvas.getBoundingClientRect();
+        const curX = e.clientX - r.left, curY = e.clientY - r.top;
+        const roi = pxToPct(Math.min(startX, curX), Math.min(startY, curY), r);
+        roi.w = Math.round(Math.abs(curX - startX) / r.width * 1000) / 10;
+        roi.h = Math.round(Math.abs(curY - startY) / r.height * 1000) / 10;
+        if (roi.w > 2 && roi.h > 2) {
+            zones.push(roi);
+            updateZonesList();
+            updatePlateWidth();
+        }
+        drawing = false;
+        dragIdx = -1;
+        redraw();
+        updateZoneInfo();
+    }
+    dragIdx = -1;
+});
+
+// 支援觸控
+canvas && canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const t = e.touches[0];
+    const mouseEvent = new MouseEvent('mousedown', { clientX: t.clientX, clientY: t.clientY });
+    canvas.dispatchEvent(mouseEvent);
+}, { passive: false });
+canvas && canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    const t = e.touches[0];
+    currentX = t.clientX; currentY = t.clientY;
+    if (drawing) redraw();
+}, { passive: false });
+canvas && canvas.addEventListener('touchend', e => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    const mouseEventUp = new MouseEvent('mouseup', { clientX: t.clientX, clientY: t.clientY });
+    canvas.dispatchEvent(mouseEventUp);
+}, { passive: false });
+
+function updateZoneInfo() {
+    const coordEl = document.getElementById('coordDisplay');
+    const sizeEl = document.getElementById('sizeInfo');
+    const countEl = document.getElementById('zoneCount');
+    countEl.textContent = zones.length;
+
+    if (currentZoneIdx >= 0 && currentZoneIdx < zones.length) {
+        const z = zones[currentZoneIdx];
+        coordEl.textContent = `R${currentZoneIdx+1}: X:${z.x}% Y:${z.y}% W:${z.w}% H:${z.h}%`;
+        const r = canvas ? canvas.getBoundingClientRect() : null;
+        if (r) {
+            const px = pctToPx(z, r);
+            sizeEl.textContent = `｜區域尺寸: ${Math.round(px.w)}×${Math.round(px.h)}px`;
+        }
+    } else {
+        coordEl.textContent = zones.length > 0 ? '未選取' : '未繪製';
+        sizeEl.textContent = '';
+    }
+}
+
+function updateZonesList() {
+    const list = document.getElementById('zonesList');
+    list.innerHTML = zones.map((z, i) => `
+        <div class="zone-chip ${i === currentZoneIdx ? 'active' : ''}" onclick="selectZone(${i})">R${i+1}: ${z.w}×${z.h}%</div>
+    `).join('');
+    updateZoneInfo();
+}
+
+function selectZone(i) {
+    currentZoneIdx = i;
+    updateZonesList();
+    redraw();
+}
+
+function deleteCurrentZone() {
+    if (currentZoneIdx >= 0 && currentZoneIdx < zones.length) {
+        zones.splice(currentZoneIdx, 1);
+        currentZoneIdx = zones.length > 0 ? 0 : -1;
+        updateZonesList();
+        updatePlateWidth();
+        redraw();
+    }
+}
+
+function clearAll() {
+    zones = [];
+    currentZoneIdx = -1;
+    updateZonesList();
+    updatePlateWidth();
+    redraw();
+}
+
+function toggleGrid() {
+    showGrid = !showGrid;
+    const btn = document.getElementById('gridBtn');
+    btn.classList.toggle('active', showGrid);
+    redraw();
+}
+
+function toggleFullscreen() {
+    const wrap = document.getElementById('editorWrap');
+    if (!document.fullscreenElement) {
+        wrap.requestFullscreen && wrap.requestFullscreen();
+    } else {
+        document.exitFullscreen && document.exitFullscreen();
+    }
+}
+
+function setPreset(x, y, w, h) {
+    zones = [{x, y, w, h}];
+    currentZoneIdx = 0;
+    updateZonesList();
+    updatePlateWidth();
+    redraw();
+}
+
+async function saveROI() {
+    if (zones.length === 0) {
+        showStatus('請先繪製至少一個區域', 'err'); return;
+    }
+    try {
+        const res = await fetch('/api/roi/' + mode, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ zones })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showStatus('✅ ROI 設定已儲存（' + zones.length + ' 區）', 'ok');
+            setTimeout(() => { document.getElementById('statusMsg').textContent = ''; }, 3000);
+        } else {
+            showStatus('❌ 儲存失敗', 'err');
+        }
+    } catch(e) {
+        showStatus('❌ 網路錯誤', 'err');
+    }
+}
+
+function showStatus(msg, type) {
+    const el = document.getElementById('statusMsg');
+    el.textContent = msg;
+    el.className = 'status ' + type;
+}
+
+// 初始載入已儲存的 zones
+fetch('/api/roi/' + mode)
+    .then(r => r.json())
+    .then(data => {
+        if (data.zones && data.zones.length > 0) {
+            zones = data.zones;
+            currentZoneIdx = 0;
+            updateZonesList();
+            updatePlateWidth();
+            setTimeout(redraw, 200);
+        }
+    })
+    .catch(() => {});
+
+// 鍵盤快速鍵
+document.addEventListener('keydown', e => {
+    if (e.key === 'Delete' || e.key === 'Backspace') deleteCurrentZone();
+    if (e.key === 'Escape') clearAll();
+    if (e.key === 's' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveROI(); }
+    if (e.key === 'g') toggleGrid();
+});
+</script>
+</body>
+</html>

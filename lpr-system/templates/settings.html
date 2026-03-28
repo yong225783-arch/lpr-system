@@ -11,16 +11,30 @@
         <h2>📷 攝影機設定（進出口各一台）</h2>
         <form method="POST" action="{{ url_for('settings_save') }}">
             <input type="hidden" name="section" value="camera">
-            
+
             <div style="background: #e8f5e9; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
-                <h3 style="margin: 0 0 0.5rem 0; color: #2e7d32;">🚗 進口攝影機</h3>
+                <h3 style="margin: 0 0 0.5rem 0; color: #2e7d32;">🚗 入口攝影機</h3>
                 <div class="form-group">
                     <label>RTSP URL</label>
                     <input type="text" name="camera_in_url" value="{{ camera_in_url or '' }}" placeholder="rtsp://admin:password@192.168.1.100:554/stream1" style="font-family: monospace;">
                     <small>留空則使用 USB Webcam</small>
                 </div>
+                <div class="form-group">
+                    <label>偵測區域（ROI）</label>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <span style="font-size:0.85rem;">X</span>
+                        <input type="number" name="roi_in_x" value="{{ camera_in_roi.x if camera_in_roi else 0 }}" min="0" max="100" style="width:60px;" placeholder="0">
+                        <span style="font-size:0.85rem;">Y</span>
+                        <input type="number" name="roi_in_y" value="{{ camera_in_roi.y if camera_in_roi else 0 }}" min="0" max="100" style="width:60px;" placeholder="0">
+                        <span style="font-size:0.85rem;">寬%</span>
+                        <input type="number" name="roi_in_w" value="{{ camera_in_roi.w if camera_in_roi else 100 }}" min="10" max="100" style="width:60px;" placeholder="100">
+                        <span style="font-size:0.85rem;">高%</span>
+                        <input type="number" name="roi_in_h" value="{{ camera_in_roi.h if camera_in_roi else 100 }}" min="10" max="100" style="width:60px;" placeholder="100">
+                    </div>
+                    <small>只偵測此區域內的車牌，100% 表示全畫面</small>
+                </div>
             </div>
-            
+
             <div style="background: #fff3e0; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
                 <h3 style="margin: 0 0 0.5rem 0; color: #e65100;">🚪 出口攝影機</h3>
                 <div class="form-group">
@@ -28,10 +42,28 @@
                     <input type="text" name="camera_out_url" value="{{ camera_out_url or '' }}" placeholder="rtsp://admin:password@192.168.1.101:554/stream1" style="font-family: monospace;">
                     <small>留空則使用 USB Webcam</small>
                 </div>
+                <div class="form-group">
+                    <label>偵測區域（ROI）</label>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <span style="font-size:0.85rem;">X</span>
+                        <input type="number" name="roi_out_x" value="{{ camera_out_roi.x if camera_out_roi else 0 }}" min="0" max="100" style="width:60px;" placeholder="0">
+                        <span style="font-size:0.85rem;">Y</span>
+                        <input type="number" name="roi_out_y" value="{{ camera_out_roi.y if camera_out_roi else 0 }}" min="0" max="100" style="width:60px;" placeholder="0">
+                        <span style="font-size:0.85rem;">寬%</span>
+                        <input type="number" name="roi_out_w" value="{{ camera_out_roi.w if camera_out_roi else 100 }}" min="10" max="100" style="width:60px;" placeholder="100">
+                        <span style="font-size:0.85rem;">高%</span>
+                        <input type="number" name="roi_out_h" value="{{ camera_out_roi.h if camera_out_roi else 100 }}" min="10" max="100" style="width:60px;" placeholder="100">
+                    </div>
+                    <small>只偵測此區域內的車牌，100% 表示全畫面</small>
+                </div>
             </div>
 
             <button type="submit" class="btn-primary">儲存設定</button>
         </form>
+        <div style="margin-top: 12px; display: flex; gap: 10px;">
+            <a href="/roi-editor/in" class="btn btn-secondary" style="text-align:center; text-decoration:none; flex:1;">📐 入口 ROI 視覺化設定</a>
+            <a href="/roi-editor/out" class="btn btn-secondary" style="text-align:center; text-decoration:none; flex:1;">📐 出口 ROI 視覺化設定</a>
+        </div>
     </div>
 
     <div class="settings-card">
@@ -69,10 +101,38 @@
         <form method="POST" action="{{ url_for('settings_save') }}">
             <input type="hidden" name="section" value="relay">
             <div class="form-group">
-                <label>COM Port（Windows）</label>
-                <input type="text" name="relay_port" value="{{ relay_port or '' }}" placeholder="COM3">
-                <small>裝置管理員 → 連接埠 中查看</small>
+                <label>繼電器類型</label>
+                <select name="relay_type" id="relay-type-select" onchange="toggleRelayFields()">
+                    <option value="usb" {% if relay_type == 'usb' %}selected{% endif %}>USB 序列埠（COM）</option>
+                    <option value="modbus_tcp" {% if relay_type == 'modbus_tcp' %}selected{% endif %}>Modbus TCP（乙太網路）</option>
+                </select>
             </div>
+
+            <div id="relay-usb-fields" style="{% if relay_type != 'usb' %}display:none;{% endif %}">
+                <div class="form-group">
+                    <label>COM Port（Windows）</label>
+                    <input type="text" name="relay_port" value="{{ relay_port or '' }}" placeholder="COM3">
+                    <small>裝置管理員 → 連接埠 中查看</small>
+                </div>
+            </div>
+
+            <div id="relay-modbus-fields" style="{% if relay_type != 'modbus_tcp' %}display:none;{% endif %}">
+                <div class="form-group">
+                    <label>Modbus IP 位址</label>
+                    <input type="text" name="relay_modbus_ip" value="{{ relay_modbus_ip or '' }}" placeholder="192.168.1.100">
+                </div>
+                <div class="form-group">
+                    <label>Modbus Port</label>
+                    <input type="number" name="relay_modbus_port" value="{{ relay_modbus_port or 502 }}" placeholder="502">
+                    <small>通常為 502</small>
+                </div>
+                <div class="form-group">
+                    <label>Coil 位址（預設 0）</label>
+                    <input type="number" name="relay_modbus_coil" value="{{ relay_modbus_coil or 0 }}" min="0" max="255">
+                    <small>控制繼電器第幾路的位址</small>
+                </div>
+            </div>
+
             <div class="form-group">
                 <label>開門信號持續時間（秒）</label>
                 <input type="number" name="open_duration" value="{{ open_duration or 1.5 }}" min="0.5" max="10" step="0.5">
@@ -85,6 +145,59 @@
             <p style="font-size: 0.9rem; color: #64748b;">按下測試按鈕，繼電器會發送一次開門信號</p>
             <button id="btnTestRelay" class="btn-secondary" onclick="testRelay()">測試繼電器</button>
             <span id="relayResult" style="margin-left: 1rem;"></span>
+        </div>
+    </div>
+
+    <script>
+    function toggleRelayFields() {
+        const type = document.getElementById('relay-type-select').value;
+        document.getElementById('relay-usb-fields').style.display = type === 'usb' ? 'block' : 'none';
+        document.getElementById('relay-modbus-fields').style.display = type === 'modbus_tcp' ? 'block' : 'none';
+    }
+    </script>
+
+    <div class="settings-card">
+        <h2>📛 AR-725E 讀卡機設定</h2>
+        <form method="POST" action="{{ url_for('settings_save') }}">
+            <input type="hidden" name="section" value="card_reader">
+
+            <div style="background:#e8f4fd;padding:0.8rem;border-radius:8px;margin-bottom:1rem;font-size:0.85rem;color:#2e7d32;">
+                💡 AR-725E 使用 Modbus TCP 通訊，可與繼電器分開控制讀卡機與柵欄
+            </div>
+
+            <div class="form-group">
+                <label>AR-725E IP 位址</label>
+                <input type="text" name="ar725e_ip" value="{{ ar725e_ip or '' }}" placeholder="192.168.1.200">
+                <small>AR-725E 的 IP，讀卡機需與電腦在同一網段</small>
+            </div>
+            <div class="form-group">
+                <label>AR-725E Port</label>
+                <input type="number" name="ar725e_port" value="{{ ar725e_port or 502 }}" placeholder="502">
+                <small>預設 502</small>
+            </div>
+            <div class="form-group">
+                <label>AR-725E Relay Coil 位址</label>
+                <input type="number" name="ar725e_coil" value="{{ ar725e_coil or 0 }}" min="0" max="255">
+                <small>AR-725E 內建 Relay 的 Coil 位址（出廠預設 0）</small>
+            </div>
+
+            <div class="form-group">
+                <label>AR-725E 開門方式</label>
+                <select name="ar725e_mode">
+                    <option value="modbus_tcp" {% if ar725e_mode == 'modbus_tcp' %}selected{% endif %}>Modbus TCP 寫入 Coil</option>
+                    <option value="http" {% if ar725e_mode == 'http' %}selected{% endif %}>HTTP API（需設備支援）</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn-primary">儲存設定</button>
+        </form>
+
+        <div style="margin-top: 1rem; padding: 1rem; background: #fff3e0; border-radius: 8px;">
+            <h3>🃏 讀卡機用途</h3>
+            <p style="font-size: 0.85rem; color: #64748b;">
+                機車沒有車牌，改用 RFID 感應卡開門。<br>
+                車主需先在「車主管理」新增 <b>卡號</b>，感應後系統自動比對開門。
+            </p>
         </div>
     </div>
 
@@ -135,15 +248,37 @@
             
             <div class="form-group">
                 <label>OCR 引擎</label>
-                <select name="ocr_engine">
+                <select name="ocr_engine" id="ocr-engine-select" onchange="toggleOllamaFields()">
                     <option value="easyocr" {% if ocr_engine == 'easyocr' %}selected{% endif %}>EasyOCR（推薦）</option>
                     <option value="tesseract" {% if ocr_engine == 'tesseract' %}selected{% endif %}>Tesseract</option>
                     <option value="both" {% if ocr_engine == 'both' %}selected{% endif %}>兩者都用（最準）</option>
+                    <option value="ollama" {% if ocr_engine == 'ollama' %}selected{% endif %}>Ollama VLM（需安裝）</option>
+                    <option value="hybrid" {% if ocr_engine == 'hybrid' %}selected{% endif %}>Ollama + EasyOCR（最佳）</option>
                 </select>
                 <small>切換 OCR 引擎看看哪個對你的車牌比較準</small>
             </div>
+            
+            <div class="form-group" id="ollama-settings" style="{% if ocr_engine not in ['ollama', 'hybrid'] %}display:none;{% endif %}">
+                <label>Ollama URL</label>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <input type="text" name="ollama_url" id="ollama-url" value="{{ ollama_url or 'http://localhost:11434' }}" placeholder="http://localhost:11434" style="flex:1;">
+                    <button type="button" class="btn btn-secondary" onclick="fetchOllamaModels()">🔄 抓取模型</button>
+                </div>
+                <small>Ollama 安裝後的 API 地址（範例：http://localhost:11434）</small>
+            </div>
+            
+            <div class="form-group" id="ollama-model-settings" style="{% if ocr_engine not in ['ollama', 'hybrid'] %}display:none;{% endif %}">
+                <label>Ollama 模型</label>
+                <select name="ollama_model" id="ollama-model-select">
+                    <option value="llava" {% if ollama_model == 'llava' %}selected{% endif %}>llava（預設）</option>
+                    <option value="qwen2-vl" {% if ollama_model == 'qwen2-vl' %}selected{% endif %}>qwen2-vl</option>
+                    <option value="minicpm-v:latest" {% if ollama_model == 'minicpm-v:latest' %}selected{% endif %}>minicpm-v:latest</option>
+                    <option value="moondream" {% if ollama_model == 'moondream' %}selected{% endif %}>moondream</option>
+                </select>
+                <small>建議使用 llava 或 qwen2-vl（需先在 Ollama 安裝：ollama pull llava）</small>
+            </div>
 
-            <button type="submit" class="btn-primary">儲存微調設定</button>
+            <button type="submit" class="btn-primary">儲存設定</button>
         </form>
     </div>
 
@@ -190,6 +325,64 @@ function toggleCameraFields() {
     const type = document.getElementById('cameraType').value;
     document.getElementById('webcamField').style.display = type === 'webcam' ? 'block' : 'none';
     document.getElementById('rtspField').style.display = type === 'rtsp' ? 'block' : 'none';
+}
+
+function toggleOllamaFields() {
+    const engine = document.getElementById('ocr-engine-select').value;
+    const ollamaFields = document.getElementById('ollama-settings');
+    const ollamaModelFields = document.getElementById('ollama-model-settings');
+    if (ollamaFields) {
+        ollamaFields.style.display = (engine === 'ollama' || engine === 'hybrid') ? 'block' : 'none';
+    }
+    if (ollamaModelFields) {
+        ollamaModelFields.style.display = (engine === 'ollama' || engine === 'hybrid') ? 'block' : 'none';
+    }
+}
+
+async function fetchOllamaModels() {
+    const urlInput = document.getElementById('ollama-url');
+    const modelSelect = document.getElementById('ollama-model-select');
+    const btn = document.querySelector('button[onclick="fetchOllamaModels()"]');
+    const url = urlInput ? urlInput.value : 'http://localhost:11434';
+
+    if (!url) {
+        alert('請先輸入 Ollama URL');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '抓取中...';
+
+    try {
+        const res = await fetch(`/api/ollama/models?url=${encodeURIComponent(url)}`);
+        const data = await res.json();
+
+        if (data.error) {
+            alert('抓取失敗：' + data.error);
+        } else {
+            const models = data.models || [];
+            if (models.length === 0) {
+                alert('Ollama 上沒有已安裝的模型');
+            } else {
+                const currentModel = modelSelect.value; // 保留當前選中值
+                modelSelect.innerHTML = '';
+                models.forEach(m => {
+                    const name = m.name || m;
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name;
+                    if (name === currentModel) opt.selected = true;
+                    modelSelect.appendChild(opt);
+                });
+                alert(`抓取成功！找到 ${models.length} 個模型`);
+            }
+        }
+    } catch(e) {
+        alert('抓取失敗：' + e.message);
+    }
+
+    btn.disabled = false;
+    btn.textContent = '🔄 抓取模型';
 }
 
 async function testCamera() {

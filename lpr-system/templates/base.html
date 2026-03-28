@@ -29,6 +29,7 @@
             {% endif %}
             <span id="alert-badge" style="display:none; background:#dc3545; color:white; padding:2px 8px; border-radius:10px; font-size:12px; margin-left:5px;">0</span>
             <span class="nav-user">{{ username }}</span>
+            <img src="{{ url_for('static', filename='logo.jpg') }}" alt="寒風科技" class="nav-logo" title="寒風科技">
             <a href="{{ url_for('logout') }}" class="btn-logout">登出</a>
         </div>
     </nav>
@@ -63,6 +64,16 @@
 
         {% block content %}{% endblock %}
     </main>
+
+    <footer class="site-footer">
+        <div class="footer-content">
+            <img src="{{ url_for('static', filename='logo.jpg') }}" alt="寒風科技" class="footer-logo">
+            <div class="footer-text">
+                <span>© 2026 寒風科技有限公司</span>
+                <span>Han Feng Technology Co., Ltd.</span>
+            </div>
+        </div>
+    </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
