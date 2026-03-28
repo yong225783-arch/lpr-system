@@ -1,35 +1,23 @@
 #!/bin/bash
-# 停車場管理系統啟動腳本
 
-echo "========================================"
-echo "  停車場管理系統"
-echo "========================================"
+echo "=========================================="
+echo "  LPR 車牌辨識系統啟動腳本"
+echo "=========================================="
+echo ""
 
 # 檢查 Python
 if ! command -v python3 &> /dev/null; then
-    echo "錯誤: 需要 Python 3"
-    exit 1
+    echo "❌ 找不到 Python3，正在安裝..."
+    sudo apt update && sudo apt install -y python3 python3-pip
 fi
 
-# 安裝依賴
-echo "正在檢查依賴..."
-pip3 install -r requirements.txt -q
-
-# 設定環境變量（可自行修改）
-export CAMERA_SOURCE=${CAMERA_SOURCE:-"0"}
-export SIMULATE_RELAY=${SIMULATE_RELAY:-"1"}
-
-echo ""
-echo "啟動選項："
-echo "  - 攝影機: $CAMERA_SOURCE"
-echo "  - 繼電器模式: $([ "$SIMULATE_RELAY" = "1" ] && echo "模擬" || echo "真實硬體")"
-echo ""
-echo "開啟瀏覽器前往: http://localhost:5000"
-echo "預設帳號: admin"
-echo "預設密碼: admin123"
-echo ""
-echo "========================================"
-echo ""
+# 檢查必要套件
+echo "📦 檢查依賴套件..."
+pip3 install -q flask flask-cors ultralytics easyocr requests pytesseract Pillow adafruit-blinka adafruit-circuitpython-modbusbusio smbus smbus2 2>/dev/null
 
 # 啟動
+echo ""
+echo "🚀 啟動 LPR 系統..."
+echo "   按 Ctrl+C 停止"
+echo ""
 python3 main.py
