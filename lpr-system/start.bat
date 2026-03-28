@@ -5,11 +5,20 @@ echo   LPR 車牌辨識系統啟動腳本
 echo ==========================================
 echo.
 
+REM 檢查 main.py 是否存在，不存在就自動下載
+if not exist "main.py" (
+    echo 📥 找不到系統檔案，正在從 GitHub 下載...
+    git clone https://github.com/yong225783-arch/lpr-system.git temp_lpr
+    xcopy /E /Y temp_lpr\* .
+    rmdir /S /Q temp_lpr
+    echo ✅ 下載完成！
+)
+
 REM 檢查 Python
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo ❌ 找不到 Python，正在安裝...
-    echo 請先安裝 Python: https://www.python.org/downloads
+    echo ❌ 找不到 Python，請先安裝：
+    echo    https://www.python.org/downloads
     pause
     exit /b
 )
