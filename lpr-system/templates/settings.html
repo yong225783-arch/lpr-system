@@ -250,6 +250,7 @@
                 <label>OCR 引擎</label>
                 <select name="ocr_engine" id="ocr-engine-select" onchange="toggleOllamaFields()">
                     <option value="easyocr" {% if ocr_engine == 'easyocr' %}selected{% endif %}>EasyOCR（推薦）</option>
+                    <option value="paddle" {% if ocr_engine == 'paddle' %}selected{% endif %}>PaddleOCR</option>
                     <option value="tesseract" {% if ocr_engine == 'tesseract' %}selected{% endif %}>Tesseract</option>
                     <option value="both" {% if ocr_engine == 'both' %}selected{% endif %}>兩者都用（最準）</option>
                     <option value="ollama" {% if ocr_engine == 'ollama' %}selected{% endif %}>Ollama VLM（需安裝）</option>

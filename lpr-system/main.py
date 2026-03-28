@@ -1204,6 +1204,29 @@ def get_paddleocr():
         logger.info('PaddleOCR 初始化完成')
     return _paddleocr
 
+def ocr_crop_with_paddle(crop_img):
+    """使用 PaddleOCR 辨識車牌截圖"""
+    try:
+        ocr = get_paddleocr()
+        import numpy as np
+        result = ocr.ocr(np.array(crop_img), cls=True)
+        
+        if not result or not result[0]:
+            return []
+        
+        texts = []
+        for line in result[0]:
+            if line:
+                text = line[1][0] if len(line) > 1 else ''
+                conf = line[1][1] if len(line) > 1 else 0
+                texts.append((text, conf))
+        
+        logger.info(f'PaddleOCR 結果: {texts}')
+        return texts
+    except Exception as e:
+        logger.error(f'PaddleOCR 錯誤: {e}')
+        return []
+
 # EasyOCR 全域實例
 _easyocr = None
 
@@ -1735,8 +1758,9 @@ def api_detect_plate():
         elif ocr_engine == 'easyocr':
             ocr_texts = ocr_crop_with_easyocr(transformed)
         elif ocr_engine == 'tesseract':
-            # 假設 ocr_crop_with_easyocr 包含 tesseract
             ocr_texts = ocr_crop_with_easyocr(transformed)
+        elif ocr_engine == 'paddle':
+            ocr_texts = ocr_crop_with_paddle(transformed)
         else:  # 'both' or 'hybrid'
             # hybrid = EasyOCR 為主，Ollama 為輔
             ocr_texts = ocr_crop_with_easyocr(transformed)
@@ -1759,6 +1783,8 @@ def api_detect_plate():
         full_ocr_texts = ocr_with_ollama(filepath)
     elif ocr_engine == 'easyocr' or ocr_engine == 'tesseract':
         full_ocr_texts = ocr_with_easyocr(filepath)
+    elif ocr_engine == 'paddle':
+        full_ocr_texts = ocr_crop_with_paddle(cv2.imread(filepath))
     else:  # 'both' or 'hybrid'
         # hybrid: 先用 EasyOCR，再用 Ollama 備援
         full_ocr_texts = ocr_with_easyocr(filepath)
