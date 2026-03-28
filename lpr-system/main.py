@@ -1947,6 +1947,7 @@ def extract_plate_number(ocr_texts):
 @app.route('/api/detect_plate', methods=['POST'])
 def api_detect_plate():
     """辨識上傳圖片中的車牌（YOLOv8 + PaddleOCR 架構）"""
+    from datetime import datetime as dt  # 避免 scope 問題
     if 'user_id' not in session:
         return jsonify({'success': False, 'message': '未登入'})
     
@@ -1958,7 +1959,7 @@ def api_detect_plate():
         return jsonify({'success': False, 'message': '沒有選擇檔案'})
     
     # 儲存圖片
-    filename = f"detect_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
+    filename = f"detect_{dt.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
     filepath = os.path.join('captures', filename)
     os.makedirs('captures', exist_ok=True)
     file.save(filepath)
@@ -2853,15 +2854,53 @@ def api_owners_assign_slot(owner_id):
     
     return jsonify({'success': True, 'message': '車位分配成功'})
 
-# ============ 啟動時檢查月租到期 ============
-try:
-    check_rental_expiry_alerts()
-except:
-    pass
+# ============ 啟動 ============
+
+
+# ============ 月租到期提醒 API ============
+@app.route('/api/owners/expiring')
+def api_owners_expiring():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    days = int(request.args.get('days', 30))
+    expiring = db.get_owners_expiring_soon(days)
+    return jsonify({'owners': expiring})
+
+@app.route('/api/owners/<int:owner_id>/expiry', methods=['POST'])
+def api_owners_update_expiry(owner_id):
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    data = request.json
+    expiry_date = data.get('expiry_date', '')
+    try:
+        db.update_owner_expiry(owner_id, expiry_date or None)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+def check_rental_expiry_alerts():
+    try:
+        expiring = db.get_owners_expiring_soon(7)
+        for owner in expiring:
+            plate = owner.get('plate', '')
+            expiry = owner.get('rental_expiry_date', '')
+            if not expiry:
+                continue
+            days_left = (datetime.strptime(expiry, '%Y-%m-%d').date() - datetime.now().date()).days
+            if days_left < 0:
+                msg = f'[已過期] {owner["name"]} ({plate}) 月租已過期'
+            elif days_left == 0:
+                msg = f'[今日到期] {owner["name"]} ({plate}) 月租今天到期'
+            else:
+                msg = f'[到期提醒] {owner["name"]} ({plate}) 月租將於 {days_left} 天後到期（{expiry}）'
+            already = any(a.get('message','') == msg and (datetime.now() - a.get('time', datetime.min)).days == 0 for a in alerts)
+            if not already:
+                add_alert('warning', msg)
+    except Exception as e:
+        logger.error(f'月租到期檢查失敗: {e}')
 
 # ============ 啟動 ============
 
-if __name__ == '__main__':
     print('=' * 50)
     print('  車牌辨識開門系統')
     print('  網頁管理: http://localhost:5000')
