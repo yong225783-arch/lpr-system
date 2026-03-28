@@ -312,13 +312,13 @@ def add_owner(name, phone, plate, car_type='轎車', slot_number=None, note='', 
         if owner_id:
             # 手動指定 ID
             conn.execute(
-                'INSERT INTO owners (id, member_id, name, phone, plate, card_id, car_type, owner_type, slot_number, note, created_at, rental_start_date, rental_expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (owner_id, member_id, name, phone, plate, card_id, car_type, owner_type, slot_number if slot_number else None, note, now, rental_start_date, rental_expiry_date)
+                'INSERT INTO owners (id, member_id, name, phone, plate, card_id, car_type, owner_type, slot_number, note, is_blacklist, created_at, rental_start_date, rental_expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (owner_id, member_id, name, phone, plate, card_id, car_type, owner_type, slot_number if slot_number else None, note, 0, now, rental_start_date, rental_expiry_date)
             )
         else:
             conn.execute(
-                'INSERT INTO owners (member_id, name, phone, plate, card_id, car_type, owner_type, slot_number, note, created_at, rental_start_date, rental_expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (member_id, name, phone, plate, card_id, car_type, owner_type, slot_number if slot_number else None, note, now, rental_start_date, rental_expiry_date)
+                'INSERT INTO owners (member_id, name, phone, plate, card_id, car_type, owner_type, slot_number, note, is_blacklist, created_at, rental_start_date, rental_expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (member_id, name, phone, plate, card_id, car_type, owner_type, slot_number if slot_number else None, note, 0, now, rental_start_date, rental_expiry_date)
             )
         conn.commit()
         conn.close()
