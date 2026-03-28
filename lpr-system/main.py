@@ -1379,12 +1379,9 @@ def ocr_with_ulrixon(image_path):
                 char_classes = [int(c) for c in classes[order]]
                 char_conf = [float(c) for c in confs[order]]
                 
-                # 組成車牌文字
-                plate_chars = []
-                for cls_id in char_classes:
-                    if cls_id < len(OCR_CLASSES):
-                        plate_chars.append(OCR_CLASSES[cls_id])
-                
+                # 直接用模型的類別名稱（避免 OCR_CLASSES 順序與模型不符）
+                ocr_model_names = ocr_result.names  # class_id -> char name
+                plate_chars = [ocr_model_names[int(cls_id)] for cls_id in char_classes]
                 plate_text = ''.join(plate_chars)
                 
                 # 格式化：一般車牌 XXX-XXXX
