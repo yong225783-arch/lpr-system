@@ -599,12 +599,14 @@ def owners_add():
     slot_number = request.form.get('slot_number', '').strip()
     note = request.form.get('note', '').strip()
     member_id = request.form.get('member_id', '').strip()
+    rental_expiry_date = request.form.get('rental_expiry_date', '').strip()
+    rental_expiry_date = request.form.get('rental_expiry_date', '').strip()
     if not name or not plate:
         flash('姓名和車牌必填', 'error')
     else:
         owner_id = request.form.get('id', '').strip()
         owner_id = int(owner_id) if owner_id else None
-        ok, msg = db.add_owner(name, phone, plate, car_type, slot_number, note, owner_id, member_id, owner_type, card_id)
+        ok, msg = db.add_owner(name, phone, plate, car_type, slot_number, note, owner_id, member_id, owner_type, card_id, rental_expiry_date or None)
         if not ok:
             flash(msg, 'error')
     return redirect(url_for('owners'))
@@ -623,7 +625,7 @@ def owners_edit(owner_id):
     note = request.form.get('note', '').strip()
     member_id = request.form.get('member_id', '').strip()
     is_blacklist = 1 if request.form.get('is_blacklist') else 0
-    ok, msg = db.update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist, member_id, owner_type, card_id)
+    ok, msg = db.update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist, member_id, owner_type, card_id, rental_expiry_date or None)
     if not ok:
         flash(msg, 'error')
     return redirect(url_for('owners'))
@@ -2667,6 +2669,12 @@ def api_owners_assign_slot(owner_id):
         db.assign_slot_to_plate(slot_number, owner['plate'], owner_id)
     
     return jsonify({'success': True, 'message': '車位分配成功'})
+
+# ============ 啟動時檢查月租到期 ============
+try:
+    check_rental_expiry_alerts()
+except:
+    pass
 
 # ============ 啟動 ============
 

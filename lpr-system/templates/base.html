@@ -103,6 +103,18 @@
             .catch(() => {});
     }
     
+    // 標記所有通知為已讀
+    function markAllAlertsRead() {
+        fetch('/api/alerts/mark-read', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('alert-badge').style.display = 'none';
+                }
+            })
+            .catch(() => {});
+    }
+    
     // 頁面載入時檢查通知
     {% if session.get('user_id') %}
     loadAlerts();

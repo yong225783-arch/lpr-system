@@ -178,6 +178,8 @@ def init_db():
     # Migration: 新增 owners 欄位（如果還沒有）
     try:
         c.execute("ALTER TABLE owners ADD COLUMN owner_type TEXT DEFAULT 'resident'")
+        c.execute("ALTER TABLE owners ADD COLUMN rental_start_date TEXT")
+        c.execute("ALTER TABLE owners ADD COLUMN rental_expiry_date TEXT")
     except:
         pass
 
@@ -253,6 +255,29 @@ def get_owners():
     conn.close()
     return [dict(row) for row in rows]
 
+
+def get_owners_expiring_soon(days=7):
+    """取得 N 天內即將到期的月租戶"""
+    from datetime import datetime, timedelta
+    today = datetime.now().date()
+    threshold = (today + timedelta(days=days)).strftime('%Y-%m-%d')
+    today_str = today.strftime('%Y-%m-%d')
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM owners WHERE owner_type='resident' AND rental_expiry_date IS NOT NULL AND rental_expiry_date != '' AND rental_expiry_date <= ? AND rental_expiry_date >= ? ORDER BY rental_expiry_date ASC",
+        (threshold, today_str)
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def update_owner_expiry(owner_id, rental_expiry_date):
+    """更新車主月租到期日"""
+    conn = get_db()
+    conn.execute("UPDATE owners SET rental_expiry_date=? WHERE id=?", (rental_expiry_date, owner_id))
+    conn.commit()
+    conn.close()
+
+
 def get_owner_by_plate(plate):
     conn = get_db()
     row = conn.execute(
@@ -280,20 +305,20 @@ def get_owner_by_id(owner_id):
     conn.close()
     return dict(row) if row else None
 
-def add_owner(name, phone, plate, car_type='轎車', slot_number=None, note='', owner_id=None, member_id=None, owner_type='resident', card_id=None):
+def add_owner(name, phone, plate, car_type='轎車', slot_number=None, note='', owner_id=None, member_id=None, owner_type='resident', card_id=None, rental_start_date=None, rental_expiry_date=None):
     conn = get_db()
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     try:
         if owner_id:
             # 手動指定 ID
             conn.execute(
-                'INSERT INTO owners (id, member_id, name, phone, plate, card_id, car_type, owner_type, slot_number, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (owner_id, member_id, name, phone, plate, card_id, car_type, owner_type, slot_number if slot_number else None, note, now)
+                'INSERT INTO owners (id, member_id, name, phone, plate, card_id, car_type, owner_type, slot_number, note, created_at, rental_start_date, rental_expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (owner_id, member_id, name, phone, plate, card_id, car_type, owner_type, slot_number if slot_number else None, note, now, rental_start_date, rental_expiry_date)
             )
         else:
             conn.execute(
-                'INSERT INTO owners (member_id, name, phone, plate, card_id, car_type, owner_type, slot_number, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (member_id, name, phone, plate, card_id, car_type, owner_type, slot_number if slot_number else None, note, now)
+                'INSERT INTO owners (member_id, name, phone, plate, card_id, car_type, owner_type, slot_number, note, created_at, rental_start_date, rental_expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (member_id, name, phone, plate, card_id, car_type, owner_type, slot_number if slot_number else None, note, now, rental_start_date, rental_expiry_date)
             )
         conn.commit()
         conn.close()
@@ -304,12 +329,12 @@ def add_owner(name, phone, plate, car_type='轎車', slot_number=None, note='', 
             return False, 'ID 已經存在'
         return False, '車牌已存在'
 
-def update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist, member_id=None, owner_type='resident', card_id=None):
+def update_owner(owner_id, name, phone, plate, car_type, slot_number, note, is_blacklist, member_id=None, owner_type='resident', card_id=None, rental_start_date=None, rental_expiry_date=None):
     conn = get_db()
     try:
         conn.execute(
-            '''UPDATE owners SET member_id=?, name=?, phone=?, plate=?, card_id=?, car_type=?, owner_type=?, slot_number=?, note=?, is_blacklist=? WHERE id=?''',
-            (member_id, name, phone, plate, card_id, car_type, owner_type, slot_number, note, is_blacklist, owner_id)
+            '''UPDATE owners SET member_id=?, name=?, phone=?, plate=?, card_id=?, car_type=?, owner_type=?, slot_number=?, note=?, is_blacklist=?, rental_start_date=?, rental_expiry_date=? WHERE id=?''',
+            (member_id, name, phone, plate, card_id, car_type, owner_type, slot_number, note, is_blacklist, rental_start_date, rental_expiry_date, owner_id)
         )
         conn.commit()
         conn.close()

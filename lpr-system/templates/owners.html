@@ -22,13 +22,14 @@
                 <th>車牌</th>
                 <th>卡號</th>
                 <th>類型</th>
+                <th>租期</th>
                 <th>狀態</th>
                 <th>操作</th>
             </tr>
         </thead>
         <tbody id="owners-tbody">
             {% for o in owners %}
-            <tr class="{% if o.is_blacklist %}row-danger{% endif %}" data-blacklist="{{ o.is_blacklist }}" data-owner-type="{{ o.owner_type }}">
+            <tr class="{% if o.is_blacklist %}row-danger{% endif %}" data-blacklist="{{ o.is_blacklist }}" data-owner-type="{{ o.owner_type }}" data-expiry="{{ o.rental_expiry_date or "" }}" data-name="{{ o.name }}" data-plate="{{ o.plate }}">
                 <td>{{ o.member_id or o.id }}</td>
                 <td>{{ o.name }}</td>
                 <td>{{ o.phone or '-' }}</td>
@@ -52,8 +53,15 @@
                     {% endif %}
                 </td>
                 <td>
+                    {% if o.owner_type in ('resident','owner','tenant') %}
+                    <span class="expiry-cell" data-expiry="{{ o.rental_expiry_date or '' }}" data-start="{{ o.rental_start_date or '' }}" style="cursor:pointer; padding:2px 8px; border-radius:10px; font-size:12px; background:#6c757d; color:white;"></span>
+                    {% else %}
+                    <span style="color:#bbb; font-size:12px;">-</span>
+                    {% endif %}
+                </td>
+                <td>
                     <span class="badge badge-{% if o.is_blacklist %}danger{% else %}success{% endif %}">
-                        {% if o.is_blacklist %}🚫 黑名單{% else %}✅ 正常{% endif %}
+                        {% if o.is_blacklist %}🚫 黑名单{% else %}✅ 正常{% endif %}
                     </span>
                 </td>
                 <td>
@@ -123,6 +131,14 @@
                 <input type="text" name="slot_number" id="ownerSlotNumber">
             </div>
             <div class="form-group">
+                <label>租賃開始日期</label>
+                <input type="date" name="rental_start_date" id="ownerRentalStartDate">
+            </div>
+            <div class="form-group">
+                <label>租賃到期日期</label>
+                <input type="date" name="rental_expiry_date" id="ownerRentalExpiryDate">
+            </div>
+            <div class="form-group">
                 <label>備註</label>
                 <textarea name="note" id="ownerNote" rows="2"></textarea>
             </div>
@@ -173,6 +189,8 @@ function showAddModal() {
     document.getElementById('ownerCarType').value = '轎車';
     document.getElementById('ownerType').value = 'resident';
     document.getElementById('ownerSlotNumber').value = '';
+    document.getElementById('ownerRentalStartDate').value = '';
+    document.getElementById('ownerRentalExpiryDate').value = '';
     document.getElementById('ownerNote').value = '';
     document.getElementById('ownerBlacklist').checked = false;
     document.getElementById('ownerModal').style.display = 'block';
@@ -189,6 +207,8 @@ function editOwner(o) {
     document.getElementById('ownerCarType').value = o.car_type || '轎車';
     document.getElementById('ownerType').value = o.owner_type || 'resident';
     document.getElementById('ownerSlotNumber').value = o.slot_number || '';
+    document.getElementById('ownerRentalStartDate').value = o.rental_start_date || '';
+    document.getElementById('ownerRentalExpiryDate').value = o.rental_expiry_date || '';
     document.getElementById('ownerNote').value = o.note || '';
     document.getElementById('ownerBlacklist').checked = o.is_blacklist == 1;
     document.getElementById('ownerModal').style.display = 'block';
