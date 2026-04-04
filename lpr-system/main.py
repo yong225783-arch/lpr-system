@@ -1208,7 +1208,6 @@ def settings_save():
         db.set_setting('cooldown', request.form.get('cooldown', '5'))
         db.set_setting('ocr_engine', request.form.get('ocr_engine', 'easyocr'))
         db.set_setting('ulrixon_bbox_model', request.form.get('ulrixon_bbox_model', 'models/ulrixon_bbox.pt'))
-        db.set_setting('ulrixon_ocr_model', request.form.get('ulrixon_ocr_model', 'models/ulrixon_ocr.pt'))
         db.set_setting('ollama_url', request.form.get('ollama_url', 'http://localhost:11434'))
         db.set_setting('ollama_model', request.form.get('ollama_model', 'llava'))
         flash('車牌辨識微調設定已儲存', 'success')
@@ -1306,108 +1305,11 @@ def ocr_crop_with_tesseract(crop_img):
         return []
 
 
-def ocr_with_ulrixon(image_path):
-    """
-    使用 Ulrixon 兩階段車牌辨識模型（台灣車牌專用）
-    Stage 1: best_bbox.pt 偵測車牌位置
-    Stage 2: best_s_ocr.pt 辨識車牌字元
-    回傳: [{'text': 'ABC-1234', 'confidence': 0.95}]
-    """
-    try:
-        import cv2
-        import numpy as np
-
-        # 讀取圖片
-        img = cv2.imread(image_path)
-        if img is None:
-            logger.error(f'Ulrixon OCR: 無法讀取圖片 {image_path}')
-            return []
-
-        # Stage 1: 車牌偵測
-        bbox_model = get_ulrixon_bbox_model()
-        results = bbox_model(img, conf=0.1, verbose=False)
-        
-        if not results or not results[0].boxes:
-            return []
-
-        texts = []
-        for result in results:
-            if result.boxes is None or len(result.boxes) == 0:
-                continue
-            
-            for box in result.boxes:
-                xyxy = box.xyxy[0].cpu().numpy()
-                x1, y1, x2, y2 = map(int, xyxy)
-                
-                # 擴大一點範圍避免切到字
-                margin = 2
-                x1 = max(0, x1 - margin)
-                y1 = max(0, y1 - margin)
-                x2 = min(img.shape[1], x2 + margin)
-                y2 = min(img.shape[0], y2 + margin)
-                
-                # 裁出車牌區域
-                crop = img[y1:y2, x1:x2]
-                if crop.size == 0:
-                    continue
-                
-                # 車牌直式（高度>寬度）-> 旋轉 90 度
-                h, w = crop.shape[:2]
-                if h > w:
-                    crop = cv2.rotate(crop, cv2.ROTATE_90_CLOCKWISE)
-                
-                # Stage 2: OCR
-                ocr_model = get_ulrixon_ocr_model()
-                ocr_results = ocr_model(crop, verbose=False)
-                
-                if not ocr_results or not ocr_results[0].boxes:
-                    continue
-                
-                # 取得每個字元的預測 + 位置
-                ocr_result = ocr_results[0]
-                if ocr_result.boxes is None:
-                    continue
-                
-                boxes = ocr_result.boxes.xyxy.cpu().numpy()
-                classes = ocr_result.boxes.cls.cpu().numpy()
-                confs = ocr_result.boxes.conf.cpu().numpy()
-                
-                # 按 x 座標排序（由左到右）
-                order = boxes[:, 0].argsort()
-                
-                # 對應字元
-                char_classes = [int(c) for c in classes[order]]
-                char_conf = [float(c) for c in confs[order]]
-                
-                # 直接用模型的類別名稱（避免 OCR_CLASSES 順序與模型不符）
-                ocr_model_names = ocr_result.names  # class_id -> char name
-                plate_chars = [ocr_model_names[int(cls_id)] for cls_id in char_classes]
-                plate_text = ''.join(plate_chars)
-                
-                # 格式化：一般車牌 XXX-XXXX
-                if len(plate_text) >= 7:
-                    plate_text = plate_text[:3] + '-' + plate_text[3:]
-                
-                avg_conf = np.mean(char_conf) if char_conf else 0
-                
-                if plate_text and len(plate_text) >= 4:
-                    texts.append({
-                        'text': plate_text.upper(),
-                        'confidence': round(float(avg_conf), 2)
-                    })
-                    logger.info(f'Ulrixon OCR: {plate_text.upper()} (conf={avg_conf:.2f})')
-        
-        return texts
-    except Exception as e:
-        logger.error(f'Ulrixon OCR 失敗: {e}')
-        return []
-
 # 初始化 YOLOv8 和 PaddleOCR (在背景延遲載入)
 _yolo_model = None
 _yolo_ocr_model = None
 _paddleocr = None
 _ulrixon_bbox_model = None
-_ulrixon_ocr_model = None
 
 def get_ulrixon_bbox_model():
     global _ulrixon_bbox_model
@@ -1417,15 +1319,6 @@ def get_ulrixon_bbox_model():
         _ulrixon_bbox_model = YOLO(model_path)
         logger.info(f'Ulrixon BBox 模型已載入: {model_path}')
     return _ulrixon_bbox_model
-
-def get_ulrixon_ocr_model():
-    global _ulrixon_ocr_model
-    if _ulrixon_ocr_model is None:
-        from ultralytics import YOLO
-        model_path = db.get_setting('ulrixon_ocr_model', 'models/ulrixon_ocr.pt')
-        _ulrixon_ocr_model = YOLO(model_path)
-        logger.info(f'Ulrixon OCR 模型已載入: {model_path}')
-    return _ulrixon_ocr_model
 
 def get_yolo_model():
     """取得 YOLOv8 車牌檢測模型"""
@@ -1984,14 +1877,6 @@ def api_detect_plate():
             ocr_texts = ocr_crop_with_easyocr(transformed)
         elif ocr_engine == 'tesseract':
             ocr_texts = ocr_crop_with_tesseract(transformed)
-        elif ocr_engine == 'ulrixon':
-            # Ulrixon 兩階段：自己偵測車牌（忽略已crop的圖，直接用原圖）
-            # 但如果 YOLO 找到了 crops，仍用 crops 做 OCR
-            ulrixon_results = ocr_with_ulrixon(image_path)
-            ocr_texts.extend(ulrixon_results)
-            if not ocr_texts:
-                easy_results = ocr_crop_with_easyocr(transformed)
-                ocr_texts.extend(easy_results)
         elif ocr_engine == 'paddle':
             ocr_texts = ocr_crop_with_paddle(transformed)
         else:  # 'both' or 'hybrid'
@@ -2011,20 +1896,6 @@ def api_detect_plate():
         all_ocr_texts.extend(ocr_texts)
         logger.info(f'  {pc["vehicle_type"]} 區域 OCR: {plates}')
     
-    # Step 2.5: 如果 YOLO 找到 0 個車牌但選了 ulrixon，直接用 ulrixon 全圖偵測
-    if not plate_crops and ocr_engine == 'ulrixon':
-        logger.info('YOLO 未偵測到車牌，改用 Ulrixon 兩階段全圖偵測')
-        ulrixon_results = ocr_with_ulrixon(filepath)
-        if ulrixon_results:
-            all_ocr_texts.extend(ulrixon_results)
-            plate_results.append({
-                'vehicle_type': 'Ulrixon',
-                'vehicle_conf': 1.0,
-                'bbox': None,
-                'ocr_texts': ulrixon_results,
-                'possible_plates': filter_plate_text(ulrixon_results)
-            })
-    
     # Step 3: 對全圖做 OCR（根據設定選擇引擎）
     if ocr_engine == 'ollama':
         full_ocr_texts = ocr_with_ollama(filepath)
@@ -2034,8 +1905,6 @@ def api_detect_plate():
             full_ocr_texts = ocr_with_tesseract(filepath)
     elif ocr_engine == 'tesseract':
         full_ocr_texts = ocr_with_tesseract(filepath)
-    elif ocr_engine == 'ulrixon':
-        full_ocr_texts = ocr_with_ulrixon(filepath)
     elif ocr_engine == 'paddle':
         full_ocr_texts = ocr_crop_with_paddle(cv2.imread(filepath))
     else:  # 'both' or 'hybrid'
