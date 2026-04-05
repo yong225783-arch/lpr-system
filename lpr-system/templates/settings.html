@@ -282,6 +282,8 @@
                     <option value="both" {% if ocr_engine == 'both' %}selected{% endif %}>兩者都用（最準）</option>
                     <option value="ollama" {% if ocr_engine == 'ollama' %}selected{% endif %}>Ollama VLM（需安裝）</option>
                     <option value="hybrid" {% if ocr_engine == 'hybrid' %}selected{% endif %}>Ollama + EasyOCR（最佳）</option>
+                    <option value="ocr_best" {% if ocr_engine == 'ocr_best' %}selected{% endif %}>OCR Best（YOLO11 台灣車牌）</option>
+                    <option value="ocr_best_ollama" {% if ocr_engine == 'ocr_best_ollama' %}selected{% endif %}>OCR Best + Ollama 備源</option>
 
                 </select>
                 <small>切換 OCR 引擎看看哪個對你的車牌比較準</small>
@@ -360,11 +362,12 @@ function toggleOllamaFields() {
     const engine = document.getElementById('ocr-engine-select').value;
     const ollamaFields = document.getElementById('ollama-settings');
     const ollamaModelFields = document.getElementById('ollama-model-settings');
+    const showOllama = engine === 'ollama' || engine === 'hybrid' || engine === 'ocr_best_ollama';
     if (ollamaFields) {
-        ollamaFields.style.display = (engine === 'ollama' || engine === 'hybrid') ? 'block' : 'none';
+        ollamaFields.style.display = showOllama ? 'block' : 'none';
     }
     if (ollamaModelFields) {
-        ollamaModelFields.style.display = (engine === 'ollama' || engine === 'hybrid') ? 'block' : 'none';
+        ollamaModelFields.style.display = showOllama ? 'block' : 'none';
     }
 }
 
