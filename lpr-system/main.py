@@ -1208,6 +1208,7 @@ def settings_save():
         db.set_setting('cooldown', request.form.get('cooldown', '5'))
         db.set_setting('ocr_engine', request.form.get('ocr_engine', 'easyocr'))
         db.set_setting('ulrixon_bbox_model', request.form.get('ulrixon_bbox_model', 'models/ulrixon_bbox.pt'))
+        db.set_setting('ocr_best_model', request.form.get('ocr_best_model', 'models/ocr_best.pt'))
         db.set_setting('ollama_url', request.form.get('ollama_url', 'http://localhost:11434'))
         db.set_setting('ollama_model', request.form.get('ollama_model', 'llava'))
         flash('車牌辨識微調設定已儲存', 'success')
@@ -1302,6 +1303,122 @@ def ocr_crop_with_tesseract(crop_img):
         return []
     except Exception as e:
         logger.error(f'Tesseract OCR failed: {e}')
+        return []
+
+
+_ocr_best_model = None
+
+def get_ocr_best_model():
+    """取得 ocr_best YOLO11 車牌字元偵測模型"""
+    global _ocr_best_model
+    if _ocr_best_model is None:
+        from ultralytics import YOLO
+        model_path = db.get_setting('ocr_best_model', 'models/ocr_best.pt')
+        _ocr_best_model = YOLO(model_path)
+        logger.info(f'OCR Best 模型已載入: {model_path}')
+    return _ocr_best_model
+
+
+def ocr_with_ocr_best(crop_img):
+    """
+    使用 ocr_best (YOLO11) 進行車牌字元偵測
+    直接用模型輸出的 names 做字元映射
+    """
+    try:
+        import numpy as np
+        import re
+
+        # 台灣車牌有效格式（正則表達式）
+        PLATE_PATTERNS = [
+            r'^[A-Z]{2,3}-[0-9]{4}$',       # XXX-0000 或 XX-0000（標準汽車）
+            r'^[0-9]{4}-[A-Z]{2,3}$',       # 0000-XXX（機車）
+            r'^[A-Z]{2,3}-[0-9]{5}$',       # XXX-00000（8字營業車）
+            r'^[0-9]{4}-[A-Z]{1,3}$',       # 0000-X ~ 0000-XXX（大型重機）
+            r'^[A-Z]-[0-9]{3}-[A-Z]{2,3}$', # X-000-XX（特殊格式）
+        ]
+
+        def is_valid_plate(text):
+            """檢查車牌格式是否符合台灣規範"""
+            for pattern in PLATE_PATTERNS:
+                if re.match(pattern, text):
+                    return True
+            return False
+
+        def format_plate(text):
+            """自動修正車牌格式"""
+            # 移除連續的 dash
+            while '--' in text:
+                text = text.replace('--', '-')
+
+            # 特殊處理：常見的 OCR 誤讀
+            if len(text) == 9 and text[3] == 'P' and text[4] == '-' and text[5:].isdigit():
+                text = text[:3] + '-' + text[5:]
+            elif len(text) == 9 and text[3] == '-' and text[4:].isdigit() and len(text[4:]) == 5:
+                text = text[:3] + '-' + text[5:]
+
+            # 格式化：一般車牌 XXX-XXXX（只有沒有 dash 時才加）
+            if len(text) >= 7 and '-' not in text:
+                text = text[:3] + '-' + text[3:]
+
+            return text
+
+        # 如果傳進來的是檔案路徑，就讀取；如果是 numpy array 直接用
+        if isinstance(crop_img, str):
+            import cv2
+            img = cv2.imread(crop_img)
+            if img is None:
+                logger.error(f'OCR Best: 無法讀取圖片 {crop_img}')
+                return []
+        else:
+            img = crop_img
+
+        model = get_ocr_best_model()
+        results = model(img, conf=0.25, verbose=False)
+
+        if not results or not results[0].boxes:
+            return []
+
+        texts = []
+        for result in results:
+            if result.boxes is None or len(result.boxes) == 0:
+                continue
+
+            boxes = result.boxes.xyxy.cpu().numpy()
+            classes = result.boxes.cls.cpu().numpy()
+            confs = result.boxes.conf.cpu().numpy()
+
+            # 按 x 座標排序（由左到右）
+            order = boxes[:, 0].argsort()
+            char_classes = [int(c) for c in classes[order]]
+            char_conf = [float(c) for c in confs[order]]
+
+            # 直接用模型的類別名稱映射
+            ocr_model_names = result.names
+            plate_chars = [ocr_model_names[int(cls_id)] for cls_id in char_classes]
+            plate_text = ''.join(plate_chars)
+
+            # 自動格式修正
+            plate_text = format_plate(plate_text)
+            avg_conf = np.mean(char_conf) if char_conf else 0
+
+            # 格式驗證
+            is_valid = is_valid_plate(plate_text)
+            if not is_valid:
+                # 格式不符，大幅降低 confidence
+                avg_conf = avg_conf * 0.5
+                logger.warning(f'OCR Best: 格式不符 ({plate_text})，confidence 降至 {avg_conf:.2f}')
+
+            if plate_text and len(plate_text) >= 4:
+                texts.append({
+                    'text': plate_text.upper(),
+                    'confidence': round(float(avg_conf), 2),
+                    'format_valid': is_valid
+                })
+                logger.info(f'OCR Best: {plate_text.upper()} (conf={avg_conf:.2f}, valid={is_valid})')
+
+        return texts
+    except Exception as e:
+        logger.error(f'OCR Best 失敗: {e}')
         return []
 
 
@@ -1796,6 +1913,11 @@ def filter_plate_text(ocr_texts):
         # 特殊車牌
         r'[0-9]{3}[A-Z]{3}',         # 123ABC (無dash大型車)
         r'[A-Z][0-9]{4}[A-Z]',       # A1234B (混合)
+
+        # 混合格式（含單一字母在中間）
+        r'[A-Z]{2,3}-[A-Z]-[0-9]{2,4}',  # AZK-Y-718, ABC-X-1234
+        r'[A-Z]-[0-9]{3,4}',              # A-1234 (單字母前綴)
+        r'[0-9]{3,4}-[A-Z]-[A-Z]{2,3}',  # 1234-AB (數字-字母-字母)
     ]
     
     # 排除包含中文的文字
@@ -1819,7 +1941,7 @@ def filter_plate_text(ocr_texts):
         if conf < ocr_conf_threshold:
             continue
         
-        text_upper = text.upper().replace('·', '-').replace('.', '-')
+        text_upper = text.upper().replace('·', '-').replace('.', '-').replace('--', '-')
         for pattern in plate_patterns:
             matches = re.findall(pattern, text_upper)
             for match in matches:
@@ -1879,6 +2001,20 @@ def api_detect_plate():
             ocr_texts = ocr_crop_with_tesseract(transformed)
         elif ocr_engine == 'paddle':
             ocr_texts = ocr_crop_with_paddle(transformed)
+        elif ocr_engine == 'ocr_best':
+            ocr_texts = ocr_with_ocr_best(pc['crop'])
+            # 如果 ocr_best 找不到任何車牌，用 Ollama 備源
+            if not ocr_texts:
+                logger.info('ocr_best 未找到車牌，改用 Ollama 備源')
+                ollama_texts = ocr_crop_with_ollama(transformed)
+                ocr_texts.extend(ollama_texts)
+        elif ocr_engine == 'ocr_best_ollama':
+            # 先用 ocr_best，找不到才用 Ollama 備源
+            ocr_texts = ocr_with_ocr_best(pc['crop'])
+            if not ocr_texts:
+                logger.info('ocr_best 未找到車牌，改用 Ollama 備源')
+                ollama_texts = ocr_crop_with_ollama(transformed)
+                ocr_texts.extend(ollama_texts)
         else:  # 'both' or 'hybrid'
             # hybrid = EasyOCR 為主，Ollama 為輔
             ocr_texts = ocr_crop_with_easyocr(transformed)
@@ -1907,6 +2043,16 @@ def api_detect_plate():
         full_ocr_texts = ocr_with_tesseract(filepath)
     elif ocr_engine == 'paddle':
         full_ocr_texts = ocr_crop_with_paddle(cv2.imread(filepath))
+    elif ocr_engine == 'ocr_best':
+        full_ocr_texts = ocr_with_ocr_best(filepath)
+        if not full_ocr_texts:
+            logger.info('ocr_best 全圖掃描未找到車牌，改用 Ollama 備源')
+            full_ocr_texts = ocr_with_ollama(filepath)
+    elif ocr_engine == 'ocr_best_ollama':
+        full_ocr_texts = ocr_with_ocr_best(filepath)
+        if not full_ocr_texts:
+            logger.info('ocr_best 全圖掃描未找到車牌，改用 Ollama 備源')
+            full_ocr_texts = ocr_with_ollama(filepath)
     else:  # 'both' or 'hybrid'
         # hybrid: 先用 EasyOCR，再用 Ollama/Tesseract 備援
         full_ocr_texts = ocr_with_easyocr(filepath)
