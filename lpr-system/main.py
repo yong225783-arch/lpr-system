@@ -1981,8 +1981,8 @@ def filter_plate_text(ocr_texts):
         r'[A-Z]{2}-[0-9]{4}',
         r'[A-Z]{3}-[0-9]{3}',
         r'[0-9]{3}-[A-Z]{3}',
-        r'[0-9]{4}[·.][A-Z]{2,3}',
-        r'[0-9]{3}[·.][A-Z]{3}',
+        r'[0-9]{4}-[A-Z]{2,3}',
+        r'[0-9]{3}-[A-Z]{3}',
         r'[0-9]{3}[A-Z]{3}',
         r'[A-Z][0-9]{4}[A-Z]',
         r'[A-Z]{2,3}-[A-Z]-[0-9]{2,4}',
@@ -2150,8 +2150,6 @@ def api_detect_plate():
                     pass
             if not full_ocr_texts:
                 full_ocr_texts = ocr_with_tesseract(filepath)
-        all_ocr_texts.extend(full_ocr_texts)
-
         full_plates = filter_plate_text(full_ocr_texts)
         all_ocr_texts.extend(full_ocr_texts)
 
