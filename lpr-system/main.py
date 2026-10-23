@@ -1310,7 +1310,7 @@ def settings_save():
 
 # ============ 測試 API ============
 
-@app.route('/api/test_camera')
+@app.route('/api/test_camera', methods=['POST'])
 @engineer_required
 def test_camera():
     if 'user_id' not in session:
