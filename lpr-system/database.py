@@ -157,12 +157,18 @@ def init_db():
         )
     ''')
 
-    # 預設管理員帳號 admin / admin123
+    # 首次初始化管理員帳號；密碼必須由部署者透過環境變數提供。
     c.execute('SELECT * FROM users WHERE username = ?', ('admin',))
     if not c.fetchone():
+        initial_password = os.environ.get('INITIAL_ADMIN_PASSWORD', '')
+        if len(initial_password) < 12:
+            conn.close()
+            raise RuntimeError(
+                '首次初始化需要設定 INITIAL_ADMIN_PASSWORD，且至少 12 個字元。'
+            )
         c.execute(
             'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
-            ('admin', generate_password_hash('admin123'), 'admin')
+            ('admin', generate_password_hash(initial_password), 'admin')
         )
     
     # Migration: 新增 billing_rules 欄位（如果還沒有）
