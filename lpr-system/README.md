@@ -72,7 +72,6 @@ http://localhost:5000
 | `CAMERA_SOURCE` | `0` | 攝影機來源（0=USB webcam, RTSP URL=IP Cam） |
 | `RELAY_PORT` | - | USB 繼電器 Port（如 COM3） |
 | `SIMULATE_RELAY` | `1` | 設為 1 明確啟用模擬模式；正式環境請設為 `0` |
-
 | `INITIAL_ADMIN_PASSWORD` | 無 | 新資料庫首次建立管理員時使用，至少 12 個字元 |
 | `SECRET_KEY` | 開發環境自動產生 | 正式環境必須設定為固定且隨機的密鑰 |
 | `APP_ENV` | `development` | 正式環境設為 `production`，並透過 HTTPS 使用安全 Cookie |
