@@ -35,6 +35,18 @@ pip install -r requirements.txt
 
 ### 3. 啟動系統
 
+首次啟動前，先設定管理員初始密碼（至少 12 個字元）。此變數只用於建立新資料庫中的管理員帳號：
+
+```bash
+# Linux/macOS
+export INITIAL_ADMIN_PASSWORD="請替換成自己的強密碼"
+
+# Windows PowerShell
+$env:INITIAL_ADMIN_PASSWORD="請替換成自己的強密碼"
+```
+
+若未設定，且資料庫尚未建立管理員帳號，系統會停止初始化。既有資料庫不會被覆寫；若仍使用舊版預設密碼 `admin123`，登入後必須先改成至少 12 個字元的新密碼。
+
 ```bash
 # Linux/macOS
 chmod +x start.sh
@@ -51,7 +63,7 @@ http://localhost:5000
 ```
 
 - 帳號：`admin`
-- 密碼：`admin123`
+- 密碼：首次啟動時設定的 `INITIAL_ADMIN_PASSWORD`
 
 ## 環境變量
 
@@ -60,6 +72,7 @@ http://localhost:5000
 | `CAMERA_SOURCE` | `0` | 攝影機來源（0=USB webcam, RTSP URL=IP Cam） |
 | `RELAY_PORT` | - | USB 繼電器 Port（如 COM3） |
 | `SIMULATE_RELAY` | `1` | 設為 1 啟用模擬模式 |
+| `INITIAL_ADMIN_PASSWORD` | 無 | 新資料庫首次建立管理員時使用，至少 12 個字元 |
 
 ## 網頁功能說明
 

@@ -88,6 +88,16 @@ def engineer_required(f):
         return f(*args, **kwargs)
     return decorated
 
+def login_required_api(f):
+    """保護只供已登入使用者讀取的 API。"""
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            return jsonify({'error': 'Unauthorized'}), 401
+        return f(*args, **kwargs)
+    return decorated
+
 # ============ 資料庫備份 ============
 
 def backup_database():
@@ -141,6 +151,18 @@ app.config['SESSION_COOKIE_SECURE'] = False  # 區網 HTTP 相容
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
+
+@app.before_request
+def enforce_initial_admin_password_change():
+    """限制舊版預設管理員密碼只能進入密碼變更流程。"""
+    if not session.get('must_change_password'):
+        return None
+    allowed_endpoints = {'settings', 'settings_save', 'logout', 'static'}
+    if request.endpoint not in allowed_endpoints:
+        return redirect(url_for('settings', _anchor='password'))
+    if request.endpoint == 'settings_save' and request.form.get('section') != 'password':
+        return redirect(url_for('settings', _anchor='password'))
+    return None
 
 # ============ Context Processor ============
 
@@ -525,6 +547,7 @@ def api_get_roi(mode='in'):
 
 
 @app.route('/api/camera_status/<mode>')
+@login_required_api
 def api_camera_status(mode='in'):
     """檢查攝影機狀態"""
     camera = lpr.get_camera(mode)
@@ -572,6 +595,9 @@ def login():
             session['user_id'] = user['id']
             session['username'] = user['username']
             session['role'] = user['role']
+            if username == 'admin' and password == 'admin123':
+                session['must_change_password'] = True
+                flash('此帳號仍使用舊版預設密碼，請先設定至少 12 個字元的新密碼。', 'error')
             return redirect(url_for('index'))
         record_failed_login(client_ip)  # 失敗記錄
         flash('帳號或密碼錯誤', 'error')
@@ -721,6 +747,7 @@ def api_update_record(record_id):
     return jsonify({'success': True})
 
 @app.route('/api/records/recent')
+@login_required_api
 def api_records_recent():
     """取得最近的記錄（供首頁自動刷新用）"""
     limit = int(request.args.get('limit', 10))
@@ -1000,6 +1027,7 @@ def capture(mode='in'):
 # --- 儀表板數據 ---
 
 @app.route('/api/dashboard')
+@login_required_api
 def dashboard():
     """儀表板摘要"""
     today = datetime.now().strftime('%Y-%m-%d')
@@ -1018,7 +1046,7 @@ def settings():
     
     # 檢查是否需要工程商密碼
     engineer_hash = db.get_setting('engineer_password_hash', '')
-    if engineer_hash and not session.get('engineer_mode'):
+    if engineer_hash and not session.get('engineer_mode') and not session.get('must_change_password'):
         return render_template('engineer_verify.html', next='settings')
     
     import json
@@ -1129,11 +1157,13 @@ def api_backup_download(backup_name):
 def settings_save():
     if 'user_id' not in session:
         return redirect(url_for('login'))
+    section = request.form.get('section')
     # 工程商密碼保護
     engineer_hash = db.get_setting('engineer_password_hash', '')
-    if engineer_hash and not session.get('engineer_mode'):
+    if engineer_hash and not session.get('engineer_mode') and not (
+        session.get('must_change_password') and section == 'password'
+    ):
         return redirect(url_for('login'))
-    section = request.form.get('section')
     # 工程商密碼保護（密碼變更除外：用戶只能改自己的密碼）
     if section != 'password':
         engineer_hash = db.get_setting('engineer_password_hash', '')
@@ -1197,7 +1227,11 @@ def settings_save():
         new_pass = request.form.get('new_password', '')
         confirm = request.form.get('confirm_password', '')
         if new_pass and new_pass == confirm:
+            if len(new_pass) < 12:
+                flash('新密碼至少需要 12 個字元', 'error')
+                return redirect(url_for('settings', _anchor='password'))
             db.change_password(session['user_id'], new_pass)
+            session.pop('must_change_password', None)
             flash('密碼已修改', 'success')
         elif new_pass and new_pass != confirm:
             flash('兩次密碼不同', 'error')
@@ -2361,7 +2395,6 @@ def parking_slots():
 
 # --- 計費 API ---
 
-@app.route('/api/billing/stats')
 @app.route('/api/alerts')
 def api_alerts():
     """取得系統通知"""
@@ -2402,6 +2435,7 @@ def api_billing_unpaid():
     })
 
 @app.route('/api/billing/stats')
+@login_required_api
 def api_billing_stats():
     """取得帳單統計"""
     today = datetime.now().strftime('%Y-%m-%d')
@@ -2419,6 +2453,7 @@ def api_billing_stats():
     })
 
 @app.route('/api/billing/daily')
+@login_required_api
 def api_billing_daily():
     """取得過去30天每日收入統計"""
     days = int(request.args.get('days', 30))
@@ -2436,10 +2471,12 @@ def api_billing_daily():
     return jsonify({'daily': daily_stats})
 
 @app.route('/api/billing/rules')
+@login_required_api
 def api_billing_rules():
     return jsonify(db.get_billing_rules())
 
 @app.route('/api/billing/rules/<int:rule_id>')
+@login_required_api
 def api_billing_rule(rule_id):
     rules = db.get_billing_rules()
     for r in rules:
@@ -2487,6 +2524,7 @@ def api_billing_rules_delete(rule_id):
     return jsonify({'success': True})
 
 @app.route('/api/billing/list')
+@login_required_api
 def api_billing_list():
     page = int(request.args.get('page', 1))
     per_page = 20
@@ -2595,6 +2633,7 @@ def api_set_engineer_password():
 # --- 車位 API ---
 
 @app.route('/api/parking/slots/stats')
+@login_required_api
 def api_parking_slots_stats():
     slots = db.get_parking_slots()
     available = len([s for s in slots if s['status'] == 'available'])
@@ -2608,6 +2647,7 @@ def api_parking_slots_stats():
     })
 
 @app.route('/api/parking/slots')
+@login_required_api
 def api_parking_slots():
     return jsonify(db.get_parking_slots())
 
@@ -2645,6 +2685,7 @@ def api_parking_slots_cancel_reservation(slot_id):
     return jsonify({'success': True, 'message': '已取消預訂'})
 
 @app.route('/api/parking/sessions/active')
+@login_required_api
 def api_parking_sessions_active():
     sessions = db.get_active_sessions()
     now = datetime.now()
@@ -2699,6 +2740,18 @@ def api_parking_exit():
     reason = data.get('reason', 'normal')  # normal, free, discount, error, other
     override_fee = data.get('fee')  # 如果有提供，代表要覆寫費用
     note = data.get('note', '')
+
+    if not isinstance(reason, str) or reason not in {'normal', 'free', 'discount', 'error', 'other'}:
+        return jsonify({'success': False, 'error': '不支援的離場原因'}), 400
+
+    # 在變更停車記錄或觸發繼電器前先驗證覆寫費用。
+    if override_fee is not None:
+        if isinstance(override_fee, bool):
+            return jsonify({'success': False, 'error': '費用必須是非負整數'}), 400
+        fee_text = str(override_fee).strip()
+        if not fee_text.isdecimal():
+            return jsonify({'success': False, 'error': '費用必須是非負整數'}), 400
+        override_fee = int(fee_text)
     
     if slot_number:
         # 透過車位找車牌
@@ -2707,12 +2760,16 @@ def api_parking_exit():
             plate = slot['plate']
     
     owner = db.get_owner_by_plate(plate) if plate else None
+    # end_parking_session 會把狀態改為 exited，因此必須先保存進場資料，
+    # 否則後續只查詢進行中的 session 時會找不到記錄，也不會建立帳單。
+    session_data = db.get_parking_session_by_plate(plate) if plate else None
     
     session_id, result = db.end_parking_session(plate, owner_type=owner.get('owner_type', 'visitor') if owner else 'visitor')
     
-    # 釋放車位
-    if slot_number:
-        db.free_slot(slot_number)
+    # 優先使用請求提供的車位；未提供時，從剛結束的 session 取得車位。
+    slot_to_free = slot_number or (session_data.get('slot_number') if session_data else None)
+    if slot_to_free:
+        db.free_slot(slot_to_free)
     
     if session_id is None:
         # 車位已釋放，但沒有實際的停車記錄（可能手動標記占用的）
@@ -2724,11 +2781,6 @@ def api_parking_exit():
         fee = override_fee
     elif reason in ('free', 'error'):
         fee = 0
-    else:
-        # 嘗試自動釋放
-        active = db.get_parking_session_by_plate(plate)
-        if active and active['slot_number']:
-            db.free_slot(active['slot_number'])
     
     # 開門
     if relay:
@@ -2747,7 +2799,6 @@ def api_parking_exit():
     db.add_record(plate, owner['name'] if owner else None, reason_text + note_suffix, direction='out')
     
     # 建立帳單
-    session_data = db.get_parking_session_by_plate(plate) if plate else None
     if session_data:
         entry = session_data['entry_time']
         exit_t = datetime.now()
