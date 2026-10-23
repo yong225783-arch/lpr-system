@@ -456,7 +456,7 @@ async function testRelay() {
 
 async function backupNow() {
     try {
-        const res = await fetch('/api/backup');
+        const res = await fetch('/api/backup', {method: 'POST'});
         const data = await res.json();
         if (data.success) {
             alert('✅ 備份成功！');
@@ -505,7 +505,7 @@ function restoreBackup(name) {
     if (!confirm('確定要還原到這個備份？目前資料將被取代！')) return;
     if (!confirm('再次確認：還原後系統需要重啟，確定嗎？')) return;
     
-    fetch('/api/backup/restore/' + name)
+    fetch('/api/backup/restore/' + name, {method: 'POST'})
         .then(r => r.json())
         .then(data => {
             if (data.success) {
