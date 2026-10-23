@@ -123,7 +123,7 @@ async function testCamera() {
     btn.disabled = true;
     result.textContent = '測試中...';
     try {
-        const res = await fetch('/api/test_camera');
+        const res = await fetch('/api/test_camera', {method: 'POST'});
         const data = await res.json();
         result.textContent = data.success ? '✅ 連接成功！' : '❌ 失敗：' + data.message;
     } catch(e) {
