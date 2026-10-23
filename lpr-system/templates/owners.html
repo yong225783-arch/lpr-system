@@ -4,7 +4,12 @@
 {% block content %}
 <div class="page-header">
     <h1>👥 車主管理</h1>
-    <button class="btn-primary" onclick="showAddModal()">+ 新增車主</button>
+    <div style="display:flex; gap:10px;">
+        <button class="btn-primary" onclick="showAddModal()">+ 新增車主</button>
+        <a href="/api/owners/export" class="btn-success">📥 匯出 CSV</a>
+        <button class="btn-primary" onclick="showImportModal()">📤 匯入 CSV</button>
+        <button class="btn-warning" onclick="showBlacklistedOnly()" id="btn-blacklist-filter">🚫 顯示黑名單</button>
+    </div>
 </div>
 
 <div class="table-responsive">
@@ -15,26 +20,61 @@
                 <th>姓名</th>
                 <th>電話</th>
                 <th>車牌</th>
-                <th>備註</th>
+                <th>卡號</th>
+                <th>類型</th>
+                <th>租期</th>
                 <th>狀態</th>
                 <th>操作</th>
             </tr>
         </thead>
-        <tbody>
+        <tbody id="owners-tbody">
             {% for o in owners %}
-            <tr class="{% if o.is_blacklist %}row-danger{% endif %}">
-                <td>{{ o.id }}</td>
+            <tr class="{% if o.is_blacklist %}row-danger{% elif o.owner_type in ('resident', 'owner', 'tenant') and o.rental_expiry_date and o.rental_expiry_date < now_date %}row-danger{% endif %}" data-blacklist="{{ o.is_blacklist }}" data-owner-type="{{ o.owner_type }}" data-expiry="{{ o.rental_expiry_date or "" }}" data-name="{{ o.name }}" data-plate="{{ o.plate }}">
+                <td>{{ o.member_id or o.id }}</td>
                 <td>{{ o.name }}</td>
                 <td>{{ o.phone or '-' }}</td>
                 <td><strong>{{ o.plate }}</strong></td>
-                <td>{{ o.note or '' }}</td>
+                <td>{{ o.card_id or '-' }}</td>
                 <td>
-                    <span class="badge badge-{% if o.is_blacklist %}danger{% else %}success{% endif %}">
-                        {% if o.is_blacklist %}黑名單{% else %}正常{% endif %}
+                    {% if o.owner_type == 'resident' %}
+                    <span style="background:#007bff; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">👤 月租戶</span>
+                    {% elif o.owner_type == 'owner' %}
+                    <span style="background:#28a745; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">🏠 住戶</span>
+                    {% elif o.owner_type == 'tenant' %}
+                    <span style="background:#17a2b8; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">🔑 承租戶</span>
+                    {% elif o.owner_type == 'visitor' %}
+                    <span style="background:#6c757d; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">🚗 臨停戶</span>
+                    {% elif o.owner_type == 'service' %}
+                    <span style="background:#fd7e14; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">🔧 服務人員</span>
+                    {% elif o.owner_type == 'delivery' %}
+                    <span style="background:#e83e8c; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">📦 快遞/送貨</span>
+                    {% else %}
+                    {{ o.owner_type }}
+                    {% endif %}
+                </td>
+                <td>
+                    {% if o.owner_type in ('resident','owner','tenant') %}
+                    <span class="expiry-cell" data-expiry="{{ o.rental_expiry_date or '' }}" data-start="{{ o.rental_start_date or '' }}" style="cursor:pointer; padding:2px 8px; border-radius:10px; font-size:12px; background:#6c757d; color:white;"></span>
+                    {% else %}
+                    <span style="color:#bbb; font-size:12px;">-</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% set is_expired = false %}
+                    {% if o.owner_type in ('resident', 'owner', 'tenant') and o.rental_expiry_date %}
+                        {% if o.rental_expiry_date < now_date %}
+                            {% set is_expired = true %}
+                        {% endif %}
+                    {% endif %}
+                    <span class="badge badge-{% if o.is_blacklist %}danger{% elif is_expired %}warning{% else %}success{% endif %}">
+                        {% if o.is_blacklist %}🚫 黑名單{% elif is_expired %}⚠️ 已過期{% else %}✅ 正常{% endif %}
                     </span>
                 </td>
                 <td>
-                    <button class="btn-sm btn-edit" onclick="editOwner({{ o }})">編輯</button>
+                    <button class="btn-sm btn-edit" onclick='editOwner({{ o | tojson }})'>編輯</button>
+                    {% if o.is_blacklist %}
+                    <button class="btn-sm btn-warning" onclick='removeBlacklist({{ o.id }})'>移除黑名單</button>
+                    {% endif %}
                     <form method="POST" action="{{ url_for('owners_delete', owner_id=o.id) }}" style="display:inline" onsubmit="return confirm('確定要刪除嗎？')">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn-sm btn-danger">刪除</button>
@@ -54,8 +94,11 @@
             <span class="modal-close" onclick="closeModal()">&times;</span>
         </div>
         <form id="ownerForm" method="POST">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="id" id="ownerId">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label>編號（自訂顯示用，例如：22）</label>
+                <input type="text" name="member_id" id="ownerMemberId">
+            </div>
             <div class="form-group">
                 <label>姓名 *</label>
                 <input type="text" name="name" id="ownerName" required>
@@ -67,6 +110,41 @@
             <div class="form-group">
                 <label>車牌 *</label>
                 <input type="text" name="plate" id="ownerPlate" required style="text-transform:uppercase">
+            </div>
+            <div class="form-group">
+                <label>卡號（eTag/RFID）</label>
+                <input type="text" name="card_id" id="ownerCardId" placeholder="感應卡號">
+            </div>
+            <div class="form-group">
+                <label>車型</label>
+                <select name="car_type" id="ownerCarType">
+                    <option value="轎車">轎車</option>
+                    <option value="休旅車">休旅車</option>
+                    <option value="機車">機車</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>住戶類型</label>
+                <select name="owner_type" id="ownerType">
+                    <option value="resident">👤 月租戶</option>
+                    <option value="owner">🏠 住戶</option>
+                    <option value="tenant">🔑 承租戶</option>
+                    <option value="visitor">🚗 臨停戶</option>
+                    <option value="service">🔧 服務人員</option>
+                    <option value="delivery">📦 快遞/送貨</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>車位</label>
+                <input type="text" name="slot_number" id="ownerSlotNumber">
+            </div>
+            <div class="form-group">
+                <label>租賃開始日期</label>
+                <input type="date" name="rental_start_date" id="ownerRentalStartDate">
+            </div>
+            <div class="form-group">
+                <label>租賃到期日期</label>
+                <input type="date" name="rental_expiry_date" id="ownerRentalExpiryDate">
             </div>
             <div class="form-group">
                 <label>備註</label>
@@ -84,17 +162,43 @@
         </form>
     </div>
 </div>
-{% endblock %}
+
+<!-- 匯入 CSV Modal -->
+<div id="importModal" class="modal" style="display:none">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>📤 匯入車主 CSV</h2>
+            <span class="modal-close" onclick="closeImportModal()">&times;</span>
+        </div>
+        <div style="padding: 1rem;">
+            <p style="margin-bottom: 1rem;">選擇 CSV 檔案（格式：ID,車牌,姓名,電話,車型,車位,備註）</p>
+            <form id="importForm" enctype="multipart/form-data">
+                <input type="file" name="file" accept=".csv" id="importFile" style="margin-bottom: 1rem;">
+                <div id="importResult" style="margin-top: 1rem;"></div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" onclick="closeImportModal()">取消</button>
+                    <button type="button" class="btn-primary" onclick="submitImport()">匯入</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>{% endblock %}
 
 {% block scripts %}
 <script>
 function showAddModal() {
     document.getElementById('modalTitle').textContent = '新增車主';
     document.getElementById('ownerForm').action = '/owners/add';
-    document.getElementById('ownerId').value = '';
+    document.getElementById('ownerMemberId').value = '';
     document.getElementById('ownerName').value = '';
     document.getElementById('ownerPhone').value = '';
     document.getElementById('ownerPlate').value = '';
+    document.getElementById('ownerCardId').value = '';
+    document.getElementById('ownerCarType').value = '轎車';
+    document.getElementById('ownerType').value = 'resident';
+    document.getElementById('ownerSlotNumber').value = '';
+    document.getElementById('ownerRentalStartDate').value = '';
+    document.getElementById('ownerRentalExpiryDate').value = '';
     document.getElementById('ownerNote').value = '';
     document.getElementById('ownerBlacklist').checked = false;
     document.getElementById('ownerModal').style.display = 'block';
@@ -103,10 +207,16 @@ function showAddModal() {
 function editOwner(o) {
     document.getElementById('modalTitle').textContent = '編輯車主';
     document.getElementById('ownerForm').action = '/owners/edit/' + o.id;
-    document.getElementById('ownerId').value = o.id;
+    document.getElementById('ownerMemberId').value = o.member_id || '';
     document.getElementById('ownerName').value = o.name;
     document.getElementById('ownerPhone').value = o.phone || '';
     document.getElementById('ownerPlate').value = o.plate;
+    document.getElementById('ownerCardId').value = o.card_id || '';
+    document.getElementById('ownerCarType').value = o.car_type || '轎車';
+    document.getElementById('ownerType').value = o.owner_type || 'resident';
+    document.getElementById('ownerSlotNumber').value = o.slot_number || '';
+    document.getElementById('ownerRentalStartDate').value = o.rental_start_date || '';
+    document.getElementById('ownerRentalExpiryDate').value = o.rental_expiry_date || '';
     document.getElementById('ownerNote').value = o.note || '';
     document.getElementById('ownerBlacklist').checked = o.is_blacklist == 1;
     document.getElementById('ownerModal').style.display = 'block';
@@ -114,6 +224,90 @@ function editOwner(o) {
 
 function closeModal() {
     document.getElementById('ownerModal').style.display = 'none';
+}
+
+function showImportModal() {
+    document.getElementById('importFile').value = '';
+    document.getElementById('importResult').innerHTML = '';
+    document.getElementById('importModal').style.display = 'block';
+}
+
+function closeImportModal() {
+    document.getElementById('importModal').style.display = 'none';
+}
+
+function submitImport() {
+    const fileInput = document.getElementById('importFile');
+    const file = fileInput.files[0];
+    if (!file) {
+        alert('請選擇 CSV 檔案');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    document.getElementById('importResult').innerHTML = '<span style="color:#666">匯入中...</span>';
+    
+    fetch('/api/owners/import', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        const resultDiv = document.getElementById('importResult');
+        if (data.success) {
+            resultDiv.innerHTML = '<span style="color:#28a745">✅ ' + data.message + '</span>';
+            if (data.errors && data.errors.length > 0) {
+                resultDiv.innerHTML += '<div style="margin-top:0.5rem; font-size:0.9rem; color:#dc3545;">錯誤：' + data.errors.join('<br>') + '</div>';
+            }
+            setTimeout(() => { location.reload(); }, 1500);
+        } else {
+            resultDiv.innerHTML = '<span style="color:#dc3545">❌ ' + data.message + '</span>';
+        }
+    })
+    .catch(e => {
+        document.getElementById('importResult').innerHTML = '<span style="color:#dc3545">❌ 匯入失敗：' + e + '</span>';
+    });
+}
+
+function removeBlacklist(ownerId) {
+    if (!confirm('確定要移除此車主的黑名單狀態？')) return;
+    fetch('/api/owners/' + ownerId + '/remove-blacklist', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('✅ 已移除黑名單');
+                location.reload();
+            } else {
+                alert('❌ 操作失敗：' + data.error);
+            }
+        });
+}
+
+let showingBlacklistOnly = false;
+function showBlacklistedOnly() {
+    showingBlacklistOnly = !showingBlacklistOnly;
+    const btn = document.getElementById('btn-blacklist-filter');
+    const rows = document.querySelectorAll('#owners-tbody tr');
+    
+    if (showingBlacklistOnly) {
+        btn.textContent = '👥 顯示全部';
+        btn.classList.remove('btn-warning');
+        btn.classList.add('btn-danger');
+        rows.forEach(row => {
+            if (row.dataset.blacklist !== '1') {
+                row.style.display = 'none';
+            }
+        });
+    } else {
+        btn.textContent = '🚫 顯示黑名單';
+        btn.classList.remove('btn-danger');
+        btn.classList.add('btn-warning');
+        rows.forEach(row => {
+            row.style.display = '';
+        });
+    }
 }
 
 window.onclick = function(e) {
