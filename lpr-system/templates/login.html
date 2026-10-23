@@ -5,11 +5,12 @@
 <div class="login-wrapper">
     <div class="login-card">
         <div class="login-header">
-            <img src="{{ url_for('static', filename='logo.jpg') }}" alt="logo" class="login-logo">
+            <div class="login-icon">🚗</div>
             <h1>車牌辨識系統</h1>
             <p>請登入以繼續</p>
         </div>
         <form method="POST" class="login-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label>帳號</label>
                 <input type="text" name="username" required autofocus placeholder="admin">
@@ -21,7 +22,7 @@
             <button type="submit" class="btn-primary btn-block">登入</button>
         </form>
         <div class="login-footer">
-            <small>預設帳號：admin / 密碼：admin123</small>
+            <small>請使用部署時設定的管理員帳號與密碼</small>
         </div>
     </div>
 </div>
