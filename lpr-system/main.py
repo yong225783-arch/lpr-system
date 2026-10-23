@@ -10,12 +10,14 @@ import time
 import shutil
 import logging
 import threading
+import hmac
+import secrets
 import cv2
 import numpy as np
 from datetime import datetime, timedelta, timezone
 from flask import (
     Flask, render_template, request, redirect,
-    url_for, session, jsonify, send_file, flash, make_response
+    url_for, session, jsonify, send_file, flash, make_response, abort
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -146,11 +148,32 @@ OCR_CLASSES = ['-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
 # ============ Flask App ============
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
-app.config['SESSION_COOKIE_SECURE'] = False  # 區網 HTTP 相容
+app_environment = os.environ.get('APP_ENV', 'development').lower()
+secret_key = os.environ.get('SECRET_KEY')
+if app_environment == 'production' and not secret_key:
+    raise RuntimeError('正式環境必須設定穩定的 SECRET_KEY。')
+app.secret_key = secret_key or os.urandom(32).hex()
+secure_cookie_setting = os.environ.get('SESSION_COOKIE_SECURE')
+app.config['SESSION_COOKIE_SECURE'] = (
+    secure_cookie_setting.lower() in ('1', 'true', 'yes')
+    if secure_cookie_setting is not None
+    else app_environment == 'production'
+)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
+
+def get_csrf_token():
+    """取得或建立目前 session 專用的 CSRF token。"""
+    token = session.get('_csrf_token')
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session['_csrf_token'] = token
+    return token
+
+@app.context_processor
+def inject_csrf_token():
+    return {'csrf_token': get_csrf_token}
 
 @app.before_request
 def enforce_initial_admin_password_change():
@@ -163,6 +186,30 @@ def enforce_initial_admin_password_change():
     if request.endpoint == 'settings_save' and request.form.get('section') != 'password':
         return redirect(url_for('settings', _anchor='password'))
     return None
+
+@app.before_request
+def require_authenticated_session():
+    """除登入和靜態資源外，所有頁面與 API 都必須先登入。"""
+    if request.endpoint in {'login', 'static'} or request.path == '/favicon.ico':
+        return None
+    if 'user_id' in session:
+        return None
+    if request.path.startswith('/api/') or request.is_json:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    return redirect(url_for('login'))
+
+@app.before_request
+def protect_state_changing_requests():
+    """要求所有非安全 HTTP 方法提供 session 綁定的 CSRF token。"""
+    if request.method in {'GET', 'HEAD', 'OPTIONS', 'TRACE'}:
+        return None
+    expected = session.get('_csrf_token')
+    supplied = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token')
+    if expected and supplied and hmac.compare_digest(expected, supplied):
+        return None
+    if request.path.startswith('/api/') or request.is_json:
+        return jsonify({'success': False, 'error': 'CSRF token missing or invalid'}), 400
+    abort(400, description='CSRF token missing or invalid')
 
 # ============ Context Processor ============
 
@@ -603,7 +650,7 @@ def login():
         flash('帳號或密碼錯誤', 'error')
     return render_template('login.html')
 
-@app.route('/logout')
+@app.route('/logout', methods=['POST'])
 def logout():
     session.pop('engineer_mode', None)
     session.clear()
@@ -1008,7 +1055,8 @@ def check_plate():
 
 # --- 認列拍照 ---
 
-@app.route('/capture/<mode>')
+@app.route('/capture', methods=['POST'])
+@app.route('/capture/<mode>', methods=['POST'])
 def capture(mode='in'):
     """手動拍照"""
     if 'user_id' not in session:
@@ -1093,7 +1141,7 @@ def settings():
 
 # ============ 資料庫備份 ============
 
-@app.route('/api/backup')
+@app.route('/api/backup', methods=['POST'])
 @engineer_required
 def api_backup():
     """手動備份資料庫"""
@@ -1126,7 +1174,7 @@ def api_backup_list():
     
     return jsonify({'success': True, 'backups': backups})
 
-@app.route('/api/backup/restore/<backup_name>')
+@app.route('/api/backup/restore/<backup_name>', methods=['POST'])
 @engineer_required
 def api_backup_restore(backup_name):
     """從備份還原"""
@@ -1262,7 +1310,7 @@ def settings_save():
 
 # ============ 測試 API ============
 
-@app.route('/api/test_camera')
+@app.route('/api/test_camera', methods=['POST'])
 @engineer_required
 def test_camera():
     if 'user_id' not in session:
@@ -2285,6 +2333,7 @@ def upload_test():
         
         <div class="upload-area">
             <form method="POST" action="/api/upload_test" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="__CSRF_TOKEN__">
                 <input type="file" name="image" accept="image/*" required onchange="previewImage(this)">
                 <br>
                 <img id="preview" class="preview" style="display:none;">
@@ -2322,7 +2371,7 @@ def upload_test():
         </script>
     </body>
     </html>
-    '''
+    '''.replace('__CSRF_TOKEN__', get_csrf_token())
 
 @app.route('/api/upload_test', methods=['POST'])
 def api_upload_test():

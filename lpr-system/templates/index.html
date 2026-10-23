@@ -303,7 +303,7 @@ document.getElementById('btnManualOpen')?.addEventListener('click', async () => 
 });
 
 document.getElementById('btnCapture')?.addEventListener('click', async () => {
-    const res = await fetch('/capture');
+    const res = await fetch('/capture/in', {method: 'POST'});
     const data = await res.json();
     if (data.success) {
         alert('📷 拍照成功！\n檔案：' + data.image);

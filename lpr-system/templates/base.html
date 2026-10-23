@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}{{ project_name or '車牌辨識開門系統' }}{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
@@ -30,7 +31,10 @@
             <span id="alert-badge" style="display:none; background:#dc3545; color:white; padding:2px 8px; border-radius:10px; font-size:12px; margin-left:5px;">0</span>
             <span class="nav-user">{{ username }}</span>
             <img src="{{ url_for('static', filename='logo.jpg') }}" alt="寒風科技" class="nav-logo" title="寒風科技">
-            <a href="{{ url_for('logout') }}" class="btn-logout">登出</a>
+            <form method="POST" action="{{ url_for('logout') }}" class="logout-form" style="display:inline; margin:0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn-logout">登出</button>
+            </form>
         </div>
     </nav>
     {% endif %}
@@ -151,6 +155,22 @@
             }
         });
     }
+    </script>
+    <script>
+    (() => {
+        const token = document.querySelector('meta[name="csrf-token"]')?.content;
+        const originalFetch = window.fetch.bind(window);
+        window.fetch = (input, init = {}) => {
+            const method = (init.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+            const url = new URL(input instanceof Request ? input.url : input, window.location.href);
+            if (url.origin === window.location.origin && !['GET', 'HEAD', 'OPTIONS', 'TRACE'].includes(method)) {
+                const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+                headers.set('X-CSRF-Token', token);
+                init = {...init, headers};
+            }
+            return originalFetch(input, init);
+        };
+    })();
     </script>
     {% block scripts %}{% endblock %}
 </body>

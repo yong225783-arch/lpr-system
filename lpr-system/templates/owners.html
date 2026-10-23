@@ -76,6 +76,7 @@
                     <button class="btn-sm btn-warning" onclick='removeBlacklist({{ o.id }})'>移除黑名單</button>
                     {% endif %}
                     <form method="POST" action="{{ url_for('owners_delete', owner_id=o.id) }}" style="display:inline" onsubmit="return confirm('確定要刪除嗎？')">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn-sm btn-danger">刪除</button>
                     </form>
                 </td>
@@ -93,6 +94,7 @@
             <span class="modal-close" onclick="closeModal()">&times;</span>
         </div>
         <form id="ownerForm" method="POST">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label>編號（自訂顯示用，例如：22）</label>
                 <input type="text" name="member_id" id="ownerMemberId">

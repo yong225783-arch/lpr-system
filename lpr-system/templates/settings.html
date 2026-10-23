@@ -10,6 +10,7 @@
     <div class="settings-card">
         <h2>📷 攝影機設定（進出口各一台）</h2>
         <form method="POST" action="{{ url_for('settings_save') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="section" value="camera">
 
             <div style="background: #e8f5e9; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
@@ -69,6 +70,7 @@
     <div class="settings-card">
         <h2>📝 系統資訊</h2>
         <form method="POST" action="{{ url_for('settings_save') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="section" value="project">
             <div class="form-group">
                 <label>系統名稱</label>
@@ -99,6 +101,7 @@
     <div class="settings-card">
         <h2>🔌 繼電器設定</h2>
         <form method="POST" action="{{ url_for('settings_save') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="section" value="relay">
             <div class="form-group">
                 <label>繼電器類型</label>
@@ -145,6 +148,7 @@
             <h3>⚙️ 新功能設定</h3>
             <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 1rem;">未來社區擴充功能，現在可以先開啟</p>
             <form method="POST" action="/settings/save" style="display: inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="section" value="features">
                 <div style="display: flex; flex-direction: column; gap: 0.75rem;">
                     <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
@@ -186,6 +190,7 @@
     <div class="settings-card">
         <h2>📛 AR-725E 讀卡機設定</h2>
         <form method="POST" action="{{ url_for('settings_save') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="section" value="card_reader">
 
             <div style="background:#e8f4fd;padding:0.8rem;border-radius:8px;margin-bottom:1rem;font-size:0.85rem;color:#2e7d32;">
@@ -231,6 +236,7 @@
     <div class="settings-card">
         <h2>🔐 帳號設定</h2>
         <form method="POST" action="{{ url_for('settings_save') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="section" value="password">
             <div class="form-group">
                 <label>新密碼</label>
@@ -247,6 +253,7 @@
     <div class="settings-card">
         <h2>🎯 車牌辨識微調</h2>
         <form method="POST" action="{{ url_for('settings_save') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="section" value="lpr_tuning">
             
             <div class="form-group">
@@ -423,7 +430,7 @@ async function testCamera() {
     btn.disabled = true;
     result.textContent = '測試中...';
     try {
-        const res = await fetch('/api/test_camera');
+        const res = await fetch('/api/test_camera', {method: 'POST'});
         const data = await res.json();
         result.textContent = data.success ? '✅ 連接成功！' : '❌ 失敗：' + data.message;
     } catch(e) {
@@ -449,7 +456,7 @@ async function testRelay() {
 
 async function backupNow() {
     try {
-        const res = await fetch('/api/backup');
+        const res = await fetch('/api/backup', {method: 'POST'});
         const data = await res.json();
         if (data.success) {
             alert('✅ 備份成功！');
@@ -498,7 +505,7 @@ function restoreBackup(name) {
     if (!confirm('確定要還原到這個備份？目前資料將被取代！')) return;
     if (!confirm('再次確認：還原後系統需要重啟，確定嗎？')) return;
     
-    fetch('/api/backup/restore/' + name)
+    fetch('/api/backup/restore/' + name, {method: 'POST'})
         .then(r => r.json())
         .then(data => {
             if (data.success) {
