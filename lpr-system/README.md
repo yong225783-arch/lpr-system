@@ -73,6 +73,9 @@ http://localhost:5000
 | `RELAY_PORT` | - | USB 繼電器 Port（如 COM3） |
 | `SIMULATE_RELAY` | `1` | 設為 1 啟用模擬模式 |
 | `INITIAL_ADMIN_PASSWORD` | 無 | 新資料庫首次建立管理員時使用，至少 12 個字元 |
+| `SECRET_KEY` | 開發環境自動產生 | 正式環境必須設定為固定且隨機的密鑰 |
+| `APP_ENV` | `development` | 正式環境設為 `production`，並透過 HTTPS 使用安全 Cookie |
+| `SESSION_COOKIE_SECURE` | 依 APP_ENV 決定 | 可設為 `1` 或 `0` 覆寫 Cookie 的 HTTPS 限制 |
 
 ## 網頁功能說明
 
