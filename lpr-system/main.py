@@ -464,9 +464,10 @@ elif relay_type == 'modbus_tcp':
         relay = ModbusTCPController(ip=relay_modbus_ip, port=relay_modbus_port, coil=relay_modbus_coil)
         logger.info(f'繼電器：Modbus TCP {relay_modbus_ip}:{relay_modbus_port} coil={relay_modbus_coil}')
     else:
-        from relay import RelayController
-        relay = RelayController(simulate=True)
-        logger.info('繼電器：模擬模式（無 IP）')
+        # Modbus 已被選為正式繼電器時，缺少 IP 必須明確失敗，
+        # 不可悄悄切換成模擬模式並回報開門成功。
+        relay = None
+        logger.error('繼電器設定錯誤：已選擇 Modbus TCP，但未設定繼電器 IP；開門功能已停用')
 elif relay_port:
     from relay import RelayController
     relay = RelayController(port=relay_port)
