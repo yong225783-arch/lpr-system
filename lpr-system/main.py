@@ -1966,74 +1966,69 @@ def ocr_crop_with_ollama(crop_img):
         return []
 
 def filter_plate_text(ocr_texts):
-    """過濾並格式化車牌文字"""
+    """只接受完整、格式有效的車牌候選，避免從雜訊中擷取部分字串。"""
     import re
-    
-    # 讀取 OCR 信心度設定
+
     ocr_conf_threshold = float(db.get_setting('ocr_conf', '0.3'))
-    
-    # 台灣車牌格式
     plate_patterns = [
-        # 標準格式
-        r'[A-Z]{2,3}-[0-9]{3,4}',   # ABC-1234, AB-1234, ABC-123
-        r'[0-9]{3}-[A-Z]{2,3}',       # 220-GJW, 123-ABC (3位數-2/3字母)
-        r'[0-9]{2}-[A-Z]{2,3}$',     # 12-ABC, 12-AB (2位數-2/3字母，嚴格匹配結尾)
-        r'[0-9]{4}-[A-Z]{2,3}',      # 5799-KE, 1234-ABC (4位數-2/3字母)
-        r'[A-Z]{2,3}[0-9]{4}',        # ABC1234, AB1234
-        r'[0-9][A-Z0-9]{5}',          # 1ABC23, 12ABC3
-        r'[0-9]{4}[A-Z]{2,3}',        # 5799KE, 1234AB (4位數2字母，無dash)
-
-        # 新式車牌（2012年後）
-        r'[A-Z]{2}-[0-9]{4}',         # AB-1234 (新式2碼-4碼)
-        r'[A-Z]{3}-[0-9]{3}',         # ABC-123 (新式3碼-3碼)
-
-        # 大型車
-        r'[0-9]{3}-[A-Z]{3}',         # 123-ABC (大型車)
-
-        # 特殊車牌（含中間點 · 或 .）
-        r'[0-9]{4}[·\.][A-Z]{2,3}',   # 0831·KM, 0831.KM (台灣舊式)
-        r'[0-9]{3}[·\.][A-Z]{3}',     # 123·ABC (大型車·格式)
-
-        # 特殊車牌
-        r'[0-9]{3}[A-Z]{3}',         # 123ABC (無dash大型車)
-        r'[A-Z][0-9]{4}[A-Z]',       # A1234B (混合)
-
-        # 混合格式（含單一字母在中間）
-        r'[A-Z]{2,3}-[A-Z]-[0-9]{2,4}',  # AZK-Y-718, ABC-X-1234
-        r'[A-Z]-[0-9]{3,4}',              # A-1234 (單字母前綴)
-        r'[0-9]{3,4}-[A-Z]-[A-Z]{2,3}',  # 1234-AB (數字-字母-字母)
+        r'[A-Z]{2,3}-[0-9]{3,4}',
+        r'[0-9]{3}-[A-Z]{2,3}',
+        r'[0-9]{2}-[A-Z]{2,3}',
+        r'[0-9]{4}-[A-Z]{2,3}',
+        r'[A-Z]{2,3}[0-9]{4}',
+        r'[0-9][A-Z0-9]{5}',
+        r'[0-9]{4}[A-Z]{2,3}',
+        r'[A-Z]{2}-[0-9]{4}',
+        r'[A-Z]{3}-[0-9]{3}',
+        r'[0-9]{3}-[A-Z]{3}',
+        r'[0-9]{4}[·.][A-Z]{2,3}',
+        r'[0-9]{3}[·.][A-Z]{3}',
+        r'[0-9]{3}[A-Z]{3}',
+        r'[A-Z][0-9]{4}[A-Z]',
+        r'[A-Z]{2,3}-[A-Z]-[0-9]{2,4}',
+        r'[A-Z]-[0-9]{3,4}',
+        r'[0-9]{3,4}-[A-Z]-[A-Z]{2,3}',
     ]
-    
-    # 排除包含中文的文字
-    chinese_pattern = re.compile(r'[\u4e00-\u9fff]')
-    
+
+    def normalize_candidate(candidate):
+        candidate = candidate.upper().replace('·', '-').replace('.', '-')
+        candidate = re.sub(r'-+', '-', candidate).strip('-')
+        # OCR 常漏讀分隔線；只補回明確符合既有台灣車牌樣式的兩種格式。
+        match = re.fullmatch(r'([A-Z]{2,3})([0-9]{3,4})', candidate)
+        if match:
+            candidate = f'{match.group(1)}-{match.group(2)}'
+        else:
+            match = re.fullmatch(r'([0-9]{3,4})([A-Z]{2,3})', candidate)
+            if match:
+                candidate = f'{match.group(1)}-{match.group(2)}'
+        return candidate
+
     plates = []
-    for t in ocr_texts:
-        text = t['text'].strip()
-        conf = t.get('confidence', 1.0)
-        
-        # 跳過包含中文的文字（如「台灣省」）
-        if chinese_pattern.search(text):
+    for item in ocr_texts or []:
+        raw_text = str(item.get('text', '')).upper().replace('·', '-').replace('.', '-')
+        try:
+            confidence = float(item.get('confidence', 1.0))
+        except (TypeError, ValueError):
             continue
-        # 跳過太短或太長的文字
-        if len(text) < 4 or len(text) > 10:
+        if confidence < ocr_conf_threshold:
             continue
-        # 必須包含數字和字母
-        if not re.search(r'[0-9]', text) or not re.search(r'[A-Z]', text):
-            continue
-        # 信心度太低就跳過
-        if conf < ocr_conf_threshold:
-            continue
-        
-        text_upper = text.upper().replace('·', '-').replace('.', '-').replace('--', '-')
-        for pattern in plate_patterns:
-            matches = re.findall(pattern, text_upper)
-            for match in matches:
-                if '-' not in match and len(match) == 7:
-                    plates.append(match[:3] + '-' + match[3:])
-                else:
-                    plates.append(match)
-    
+
+        # OCR 常在字元間插入空格，或在車牌旁讀到標籤；檢查短 token 組合，
+        # 但每個候選都必須完整符合其中一種格式，不接受任意子字串。
+        tokens = re.findall(r'[A-Z0-9]+(?:-[A-Z0-9]+)*', raw_text)
+        candidates = []
+        for start in range(len(tokens)):
+            for end in range(start + 1, min(len(tokens), start + 3) + 1):
+                parts = tokens[start:end]
+                candidates.append(''.join(parts))
+                if len(parts) > 1:
+                    candidates.append('-'.join(parts))
+
+        for candidate in candidates:
+            normalized = normalize_candidate(candidate)
+            if any(re.fullmatch(pattern, normalized) for pattern in plate_patterns):
+                plates.append(normalized)
+
     return list(dict.fromkeys(plates))
 
 def extract_plate_number(ocr_texts):
@@ -2116,47 +2111,54 @@ def api_detect_plate():
         all_ocr_texts.extend(ocr_texts)
         logger.info(f'  {pc["vehicle_type"]} 區域 OCR: {plates}')
     
-    # Step 3: 對全圖做 OCR（根據設定選擇引擎）
-    if ocr_engine == 'ollama':
-        full_ocr_texts = ocr_with_ollama(filepath)
-    elif ocr_engine == 'easyocr':
-        full_ocr_texts = ocr_with_easyocr(filepath)
-        if not full_ocr_texts:
-            full_ocr_texts = ocr_with_tesseract(filepath)
-    elif ocr_engine == 'tesseract':
-        full_ocr_texts = ocr_with_tesseract(filepath)
-    elif ocr_engine == 'paddle':
-        full_ocr_texts = ocr_crop_with_paddle(cv2.imread(filepath))
-    elif ocr_engine == 'ocr_best':
-        full_ocr_texts = ocr_with_ocr_best(filepath)
-        if not full_ocr_texts:
-            logger.info('ocr_best 全圖掃描未找到車牌，改用 Ollama 備源')
+    # Step 3: 只有車牌裁切辨識沒有有效候選時，才對全圖做備援 OCR。
+    # 避免背景招牌或其他文字產生的候選蓋過已辨識的車牌。
+    crop_plates = filter_plate_text(all_ocr_texts)
+    full_ocr_texts = []
+    full_plates = []
+    if crop_plates:
+        logger.info(f'車牌裁切已取得有效候選，略過全圖 OCR: {crop_plates}')
+    else:
+        if ocr_engine == 'ollama':
             full_ocr_texts = ocr_with_ollama(filepath)
-    elif ocr_engine == 'ocr_best_ollama':
-        full_ocr_texts = ocr_with_ocr_best(filepath)
-        if not full_ocr_texts:
-            logger.info('ocr_best 全圖掃描未找到車牌，改用 Ollama 備源')
-            full_ocr_texts = ocr_with_ollama(filepath)
-    else:  # 'both' or 'hybrid'
-        # hybrid: 先用 EasyOCR，再用 Ollama/Tesseract 備援
-        full_ocr_texts = ocr_with_easyocr(filepath)
-        if not full_ocr_texts:
-            try:
-                ollama_full = ocr_with_ollama(filepath)
-                full_ocr_texts.extend(ollama_full)
-            except:
-                pass
-        if not full_ocr_texts:
+        elif ocr_engine == 'easyocr':
+            full_ocr_texts = ocr_with_easyocr(filepath)
+            if not full_ocr_texts:
+                full_ocr_texts = ocr_with_tesseract(filepath)
+        elif ocr_engine == 'tesseract':
             full_ocr_texts = ocr_with_tesseract(filepath)
-    all_ocr_texts.extend(full_ocr_texts)
-    full_plates = filter_plate_text(full_ocr_texts)
-    
-    # Step 4: 合併所有偵測到的車牌
-    all_possible_plates = filter_plate_text(all_ocr_texts)
-    
-    # 合併車牌區域和全圖的結果
-    combined_plates = all_possible_plates + full_plates
-    
+        elif ocr_engine == 'paddle':
+            full_ocr_texts = ocr_crop_with_paddle(cv2.imread(filepath))
+        elif ocr_engine == 'ocr_best':
+            full_ocr_texts = ocr_with_ocr_best(filepath)
+            if not full_ocr_texts:
+                logger.info('ocr_best 全圖掃描未找到車牌，改用 Ollama 備源')
+                full_ocr_texts = ocr_with_ollama(filepath)
+        elif ocr_engine == 'ocr_best_ollama':
+            full_ocr_texts = ocr_with_ocr_best(filepath)
+            if not full_ocr_texts:
+                logger.info('ocr_best 全圖掃描未找到車牌，改用 Ollama 備源')
+                full_ocr_texts = ocr_with_ollama(filepath)
+        else:  # 'both' or 'hybrid'
+            # hybrid: 先用 EasyOCR，再用 Ollama/Tesseract 備援
+            full_ocr_texts = ocr_with_easyocr(filepath)
+            if not full_ocr_texts:
+                try:
+                    ollama_full = ocr_with_ollama(filepath)
+                    full_ocr_texts.extend(ollama_full)
+                except:
+                    pass
+            if not full_ocr_texts:
+                full_ocr_texts = ocr_with_tesseract(filepath)
+        all_ocr_texts.extend(full_ocr_texts)
+
+        full_plates = filter_plate_text(full_ocr_texts)
+        all_ocr_texts.extend(full_ocr_texts)
+
+    # Step 4: 優先採用車牌裁切結果；全圖結果只在備援 OCR 時加入。
+    all_possible_plates = list(dict.fromkeys(crop_plates + full_plates))
+    combined_plates = all_possible_plates
+
     # Step 4.5: 如果 EasyOCR 沒找到，嘗試 Tesseract OCR
     if not combined_plates:
         logger.info('EasyOCR 未找到車牌，嘗試 Tesseract OCR...')
